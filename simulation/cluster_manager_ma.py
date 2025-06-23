@@ -98,6 +98,11 @@ class DatacenterClusterManagerMA:
     def _get_newly_arrived_tasks(self, current_time_utc: pd.Timestamp) -> Dict[int, List[Task]]:
         """Loads and assigns origins to tasks for the current timestep."""
         adjusted_time = current_time_utc.replace(year=2020)
+
+        # hits = (self.tasks_df['interval_15m'] == adjusted_time).sum()
+        # print(f"[DEBUG TASK_MATCH] cur={current_time_utc.isoformat()}  "
+            # f"adj={adjusted_time.isoformat()}  hits={hits}")
+
         tasks_for_time = self.tasks_df[self.tasks_df['interval_15m'] == adjusted_time]
         
         if tasks_for_time.empty:
@@ -125,6 +130,8 @@ class DatacenterClusterManagerMA:
             if origin_id not in tasks_by_origin:
                 tasks_by_origin[origin_id] = []
             tasks_by_origin[origin_id].append(task)
+        # print(f"[TASK_ORIGIN] {current_time_utc} ⇒ "
+            #   f"{ {k: len(v) for k,v in tasks_by_origin.items()} }")
         
         return tasks_by_origin
 
@@ -137,9 +144,18 @@ class DatacenterClusterManagerMA:
 
         # 2. For each DTA_Manager, construct its unique observation
         for dc_id, node in self.nodes.items():
-            local_obs_part = node.prepare_manager_observation(current_time_utc)
-            
+            # local_obs_part = node.prepare_manager_observation(current_time_utc)
+
+            # ----- new logic -----
+            task_snapshot = list(node.originating_tasks_queue)
+            local_obs_part = node.prepare_manager_observation(current_time_utc, task_snapshot)
+            # ----- new logic -----
+
             options_list = []
+            # ----- new logic -----
+            all_dc_ids_sorted = sorted(self.nodes.keys())  # ensure stable order
+            # ----- new logic -----
+            """
             # Add local DC as the first option
             local_option_dict = local_obs_part['local_destination_option_features']
             # Make sure it has all keys, even if transmission is zero
@@ -170,7 +186,27 @@ class DatacenterClusterManagerMA:
                     "transmission_delay_s_per_gb": delay_s # Simplification for now
                 }
                 options_list.append(remote_option_features)
-            
+            """
+            for other_dc_id in all_dc_ids_sorted:
+                if other_dc_id == dc_id:
+                    option_dict = local_obs_part['local_destination_option_features']
+                    option_dict['transmission_cost_per_gb'] = 0.0
+                    option_dict['transmission_delay_s_per_gb'] = 0.0
+                else:
+                    remote_state = remote_query_states[other_dc_id]
+                    delay_s = get_transmission_delay(
+                        node.location, self.nodes[other_dc_id].location, self.cloud_provider, 1.0)
+                    cost_per_gb = self.transmission_cost_matrix.loc[
+                        map_location_to_region(node.location, self.cloud_provider),
+                        map_location_to_region(self.nodes[other_dc_id].location, self.cloud_provider)]
+                    option_dict = {
+                        "is_local": 0.0,
+                        **remote_state,
+                        "transmission_cost_per_gb": cost_per_gb,
+                        "transmission_delay_s_per_gb": delay_s
+                    }
+                options_list.append(option_dict)
+
             # 3. Convert to padded NumPy array and create mask
             num_valid_options = len(options_list)
             padded_options_array = np.zeros((self.max_total_options, self.D_OPTION_FEAT), dtype=np.float32)
@@ -297,7 +333,7 @@ class DatacenterClusterManagerMA:
 
     
     def step_worker(self, current_time_utc: pd.Timestamp,
-                  worker_actions: Dict[int, int]) -> Dict[str, Any]:
+                  worker_actions: Dict[int, int]) -> None:
         
         for dc_id, worker_action_execute in worker_actions.items():
             self.nodes[dc_id].apply_worker_decision(worker_action_execute, current_time_utc)

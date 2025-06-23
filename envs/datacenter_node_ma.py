@@ -107,12 +107,18 @@ class DatacenterNodeMA:
 
     # --- Observation Preparation ---
 
-    def prepare_manager_observation(self, current_time_utc: pd.Timestamp) -> Dict[str, Any]:
+    def prepare_manager_observation(self, current_time_utc: pd.Timestamp, task_snapshot: Optional[List[Task]] = None) -> Dict[str, Any]:
         """
         Prepares the local components of the observation for this DC's DTA_Manager.
         The ClusterManagerMA will combine this with remote DC info.
         """
-        meta_task_vector = aggregate_tasks_for_manager(self.originating_tasks_queue, current_time_utc)
+
+        # meta_task_vector = aggregate_tasks_for_manager(self.originating_tasks_queue, current_time_utc)
+        # ----- new logic -----
+        if task_snapshot is None:
+            task_snapshot = list(self.originating_tasks_queue)
+        meta_task_vector = aggregate_tasks_for_manager(task_snapshot, current_time_utc)
+        # ----- new logic -----
 
         # These features describe this DC as a *potential destination* for its own tasks
         local_option_features = {
@@ -180,8 +186,8 @@ class DatacenterNodeMA:
 
     def apply_worker_decision(self, action_execute_now: bool, current_time_utc: pd.Timestamp):
         """
-        Processes the DTA_Worker's decision (Execute Now vs. Defer Locally).
-        
+        Processes the DTA_Worker's decision (Execute Now 1 vs. Defer Locally 0).
+
         Returns:
             List[Task]: The list of tasks that were successfully scheduled to run.
         """

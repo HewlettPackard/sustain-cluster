@@ -92,7 +92,7 @@ def train():
     args = parse_args()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = f"{args.tag}_{timestamp}" if args.tag else f"{timestamp}"
-
+    
     # Save logs separately from tensorboard
     log_dir = f"logs/train_{run_id}"          # <--- debug logs
     tb_dir = f"runs/train_{run_id}"           # <--- tensorboard
@@ -166,11 +166,10 @@ def train():
     critic_loss_m, critic_loss_w, actor_loss_m, actor_loss_w= None, None, None, None
 
     for global_step in pbar:
-        
+        mgr_obs = env.collect_manager_obs()      
         meta_m, opt_m, mask_m, glob_m= [], [], [], []
-
         for dc in env._dc_ids:
-            o_mgr = obs_dict[f"manager_{dc}"]
+            o_mgr = mgr_obs[f"manager_{dc}"]
             meta_m.append(o_mgr["obs_manager_meta_task_i"])
             opt_m.append(o_mgr["obs_all_options_set_padded"])
             mask_m.append(o_mgr["all_options_padding_mask"])
@@ -186,11 +185,11 @@ def train():
             act_m, _, _ = mgr_actor.sample_action(meta_m, glob_m, opt_m, mask_m)
 
         mgr_act = {dc: act_m[i].item() for i, dc in enumerate(env._dc_ids)}
-        obs_after_mgr = env.manager_step(mgr_act)
+        wrk_obs = env.manager_step(mgr_act)
 
         meta_w, local_w, glob_w = [], [], []
         for dc in env._dc_ids:
-            o_wrk = obs_after_mgr[f"worker_{dc}"]
+            o_wrk = wrk_obs[f"worker_{dc}"]
             meta_w.append( o_wrk["obs_worker_meta_task_i"] )
             local_w.append(o_wrk["obs_local_dc_i_for_worker"])
             glob_w.append( o_wrk["global_context"] )
@@ -207,7 +206,18 @@ def train():
 
         next_obs, rewards, dones, truncated, infos = env.env_step()
         done_flag = dones["__all__"] or truncated["__all__"]
-        global_reward = rewards[next(iter(rewards))]
+        # 1. Extract rewards only for the agents we are training (the Managers)
+        manager_rewards = [
+            rewards[agent_id] for agent_id in rewards if agent_id.startswith("manager_")
+        ]
+
+        # 2. Calculate the mean reward. Handle the edge case of no rewards.
+        if manager_rewards:
+            global_reward = np.mean(manager_rewards)
+        else:
+            global_reward = 0.0 # Default to 0 if no manager rewards were produced
+
+        # 3. Use this aggregated reward for normalization and storage
         stats.update(global_reward)
         norm_reward = stats.normalize(global_reward)
 
@@ -424,9 +434,9 @@ def train():
 
                     while not done_flag:
                         meta_m, opt_m, mask_m, glob_m= [], [], [], []
-
+                        mgr_obs = eval_env.collect_manager_obs()
                         for dc in eval_env._dc_ids:
-                            o_mgr = obs_dict[f"manager_{dc}"]
+                            o_mgr = mgr_obs[f"manager_{dc}"]
                             meta_m.append(o_mgr["obs_manager_meta_task_i"])
                             opt_m.append(o_mgr["obs_all_options_set_padded"])
                             mask_m.append(o_mgr["all_options_padding_mask"])
@@ -440,12 +450,12 @@ def train():
                         with torch.no_grad():
                             act_m, _, _ = mgr_actor.sample_action(meta_m, glob_m, opt_m, mask_m)
                         mgr_act = {dc: act_m[i].item() for i, dc in enumerate(env._dc_ids)}
-                        obs_after_mgr = eval_env.manager_step(mgr_act)       
+                        wrk_obs = eval_env.manager_step(mgr_act)       
 
         
                         meta_w, local_w, glob_w = [], [], []
                         for dc in eval_env._dc_ids:
-                            w = obs_after_mgr[f"worker_{dc}"]
+                            w =  wrk_obs[f"worker_{dc}"]
                             meta_w.append(w["obs_worker_meta_task_i"])
                             local_w.append(w["obs_local_dc_i_for_worker"])
                             glob_w.append(w["global_context"])
@@ -460,8 +470,17 @@ def train():
                         eval_env.worker_step(wrk_act)
 
                         next_obs, rew_dict, dones_dict, trunc_dict, _ = eval_env.env_step() 
-                        
-                        ep_ret += rew_dict[next(iter(rew_dict))]
+                       
+                        manager_rew = [
+                            rew_dict[agent_id] for agent_id in rew_dict if agent_id.startswith("manager_")
+                        ]
+        
+                        if manager_rew:
+                            global_rew = np.mean(manager_rew)
+                        else:
+                            global_rew = 0.0 # Default to 0 if no manager rewards were produced
+
+                        ep_ret += global_rew
                         done_flag = dones_dict["__all__"] or trunc_dict["__all__"]
                         obs_dict = next_obs  
 
@@ -483,9 +502,9 @@ def train():
                         "mgr_actor_opt": mgr_actor_opt, "mgr_critic_opt": mgr_critic_opt,
                         "wrk_actor_opt": wrk_actor_opt, "wrk_critic_opt": wrk_critic_opt
                     }
-                save_checkpointMA(global_step, models, optims,
+                    save_checkpointMA(global_step, models, optims,
                         ckpt_dir, filename="best_eval_ckpt.pth", is_best=True)
-                pbar.write(f"New BEST model saved (avg return {avg_ret:.2f})")
+                    pbar.write(f"New BEST model saved (avg return {avg_ret:.2f})")
             mgr_actor.train();  wrk_actor.train()
 
     writer.close()

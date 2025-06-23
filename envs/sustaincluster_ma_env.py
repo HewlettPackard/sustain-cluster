@@ -85,7 +85,6 @@ class SustainClusterMAEnv(gym.Env):
         
         # DTA_Worker Action Space (0=Execute, 1=Defer)
         self._worker_action_space = spaces.Discrete(2)
-
         # For multi-agent compatibility, we can use these helper functions
         # Some MARL libraries (like PettingZoo) require these.
     def observation_space(self, agent: str) -> spaces.Space:
@@ -105,9 +104,9 @@ class SustainClusterMAEnv(gym.Env):
             return self._worker_action_space
         else:
             raise ValueError(f"Unknown agent type for agent '{agent}'")
-
+    """
     def _get_observations(self) -> Dict[str, Any]:
-        """Gathers observations for all active agents from the cluster manager."""
+        # Gathers observations for all active agents from the cluster manager.
         # Shared global context (time features)
         day_of_year = self.current_time.dayofyear
         hour_of_day = self.current_time.hour + self.current_time.minute / 60.0
@@ -134,7 +133,42 @@ class SustainClusterMAEnv(gym.Env):
             obs_dict[worker_id] = worker_obs_parts
         
         return obs_dict
+    """
+        
+    def _get_time_features(self):
+        day_of_year = self.current_time.dayofyear
+        hour_of_day = self.current_time.hour + self.current_time.minute / 60.0
+        return np.array([
+            np.sin(2 * np.pi * day_of_year / 365.0), np.cos(2 * np.pi * day_of_year / 365.0),
+            np.sin(2 * np.pi * hour_of_day / 24.0), np.cos(2 * np.pi * hour_of_day / 24.0)
+        ], dtype=np.float32)
 
+    def get_manager_observations(self):
+        gctx  = self._get_time_features()
+        mgr_o = self.cluster_manager_ma._prepare_all_manager_observations(
+            self.current_time
+        )
+        return {
+            f"manager_{dc}": {**mgr_o[dc], "global_context": gctx}
+            for dc in self._dc_ids
+        }
+
+    def get_worker_observations(self):
+        gctx = self._get_time_features()
+        out  = {}
+        for dc in self._dc_ids:
+            w_obs = self.cluster_manager_ma.nodes[dc].prepare_worker_observation(
+                self.current_time
+            )
+            w_obs["global_context"] = gctx
+            out[f"worker_{dc}"] = w_obs
+        return out
+
+    def _get_observations(self):
+        obs = self.get_manager_observations()
+        obs.update(self.get_worker_observations())
+        return obs
+    
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict, Dict]:
         """Resets the environment to an initial state."""
         super().reset(seed=seed)
@@ -214,31 +248,32 @@ class SustainClusterMAEnv(gym.Env):
 
         return next_observations, rewards, terminations, truncations, infos
     
+    def collect_manager_obs(self) -> Dict[str, Any]:
+        self.cluster_manager_ma.task_origination(self.current_time)
+        return self.get_manager_observations()
+    
     def manager_step(self, mgr_act: Dict[int, int]) -> Dict[str, Any]:
         """Route / migrate tasks """
         # generate new tasks for this tick
-        self.cluster_manager_ma.task_origination(self.current_time)
         if self.cluster_manager_ma.is_cluster_idle():
-            return self._get_observations()
+            return self.get_worker_observations()
         filtered = {dc: a for dc, a in mgr_act.items()
                     if self.cluster_manager_ma.nodes[dc].originating_tasks_queue}
         if filtered:
             self.cluster_manager_ma.step_manager(self.current_time, filtered)
-        return self._get_observations()
+        return self.get_worker_observations()
     
-    def worker_step(self, wrk_act: Dict[int, bool]) -> Dict[str, Any]:
+    def worker_step(self, wrk_act: Dict[int, bool])-> None:
         """Execute / defer tasks - *no* time advance."""
         any_queue = any(self.cluster_manager_ma.nodes[dc].worker_commitment_queue
                         for dc in self._dc_ids)
         if any_queue:
             self.cluster_manager_ma.step_worker(self.current_time, wrk_act)
-        return self._get_observations()
     
     def env_step(self) -> Tuple[Dict, Dict, Dict, Dict, Dict]:
         """15-min physical sim + reward."""
         results = self.cluster_manager_ma.step_physics(self.current_time)  
         self.current_time += self.time_step
-
         next_observations = self._get_observations()
         global_reward = self.reward_fn(cluster_info=results, current_time=self.current_time)
         rewards = {agent_id: global_reward for agent_id in self.agents}
