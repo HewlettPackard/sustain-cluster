@@ -2,8 +2,8 @@ algorithm:
   name: SAC
   gamma: 0.99
   alpha: 0.01
-  actor_learning_rate: 3e-4
-  critic_learning_rate: 3e-4
+  actor_learning_rate: 3e-5
+  critic_learning_rate: 3e-5
   batch_size: 512
   tau: 0.005
   replay_buffer_size: 1000000
@@ -15,10 +15,9 @@ algorithm:
   log_interval: 100
   hidden_dim: 256
   use_layer_norm: true # or false
-  max_tasks: 750
   device: auto  # auto = use CUDA if available
 
-  eval_frequency: 10000  # Evaluate every N global training steps
+  eval_frequency: 100000  # Evaluate every N global training steps
   eval_episodes: 5       # Number of episodes to run for each evaluation
 
   # Optional: Attention-specific hyperparameters (if use_attention: true)

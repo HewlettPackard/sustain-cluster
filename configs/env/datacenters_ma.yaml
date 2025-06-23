@@ -3,73 +3,43 @@ datacenters:
     location: "US-CAL-CISO"
     timezone_shift: -7
     population_weight: 0.18
-    total_cores: 50000
-    total_gpus: 1000
+    total_cores: 85000
+    total_gpus: 600
     total_mem: 80000
     dc_config_file: "configs/dcs/dc_config.json"
-    # use_rl_hvac: true                # Enable/disable RL HVAC for this DC
-    # hvac_controller_type: "ppo"      # Options: "sac", "ppo", "none" (or omit if use_rl_hvac is false)
-    # hvac_policy_path: "checkpoints/HVAC_PPO_20250505_100544/hvac_ppo_1005568.pth" # Path to trained policy checkpoint
-    # use_rl_hvac: false               # Disable RL HVAC for this DC
-    # hvac_controller_type: "none"     # Explicitly none
-    # hvac_policy_path: null           # Path not needed
 
   - dc_id: 2
     location: "DE-LU"
     timezone_shift: 1
     population_weight: 0.22
     total_cores: 85000
-    total_gpus: 750
+    total_gpus: 600
     total_mem: 80000
     dc_config_file: "configs/dcs/dc_config.json"
-    # use_rl_hvac: true                # Enable/disable RL HVAC for this DC
-    # hvac_controller_type: "ppo"      # Options: "sac", "ppo", "none" (or omit if use_rl_hvac is false)
-    # hvac_policy_path: "checkpoints/HVAC_PPO_20250505_100544/hvac_ppo_1005568.pth" # Path to trained policy checkpoint
-    # use_rl_hvac: false               # Disable RL HVAC for this DC
-    # hvac_controller_type: "none"     # Explicitly none
-    # hvac_policy_path: null           # Path not needed
 
   - dc_id: 3
     location: "CL-SIC"
     timezone_shift: -5
     population_weight: 0.2
-    total_cores: 110000
-    total_gpus: 500
-    total_mem: 60000
+    total_cores: 85000
+    total_gpus: 600
+    total_mem: 80000
     dc_config_file: "configs/dcs/dc_config.json"
-    # use_rl_hvac: true                # Enable/disable RL HVAC for this DC
-    # hvac_controller_type: "ppo"      # Options: "sac", "ppo", "none" (or omit if use_rl_hvac is false)
-    # hvac_policy_path: "checkpoints/HVAC_PPO_20250505_100544/hvac_ppo_1005568.pth" # Path to trained policy checkpoint
-    # use_rl_hvac: false               # Disable RL HVAC for this DC
-    # hvac_controller_type: "none"     # Explicitly none
-    # hvac_policy_path: null           # Path not needed
 
   - dc_id: 4
     location: "SG"
     timezone_shift: 8
     population_weight: 0.25
-    total_cores: 75000
-    total_gpus: 700
-    total_mem: 50000
+    total_cores: 85000
+    total_gpus: 600
+    total_mem: 80000
     dc_config_file: "configs/dcs/dc_config.json"
-    # use_rl_hvac: true                # Enable/disable RL HVAC for this DC
-    # hvac_controller_type: "ppo"      # Options: "sac", "ppo", "none" (or omit if use_rl_hvac is false)
-    # hvac_policy_path: "checkpoints/HVAC_PPO_20250505_100544/hvac_ppo_1005568.pth" # Path to trained policy checkpoint
-    # use_rl_hvac: false               # Disable RL HVAC for this DC
-    # hvac_controller_type: "none"     # Explicitly none
-    # hvac_policy_path: null           # Path not needed
   
   - dc_id: 5
     location: "AU-NSW"
     timezone_shift: 11
     population_weight: 0.15
-    total_cores: 65000
-    total_gpus: 300
-    total_mem: 60000
+    total_cores: 85000
+    total_gpus: 600
+    total_mem: 80000
     dc_config_file: "configs/dcs/dc_config.json"
-    # use_rl_hvac: true                # Enable/disable RL HVAC for this DC
-    # hvac_controller_type: "ppo"      # Options: "sac", "ppo", "none" (or omit if use_rl_hvac is false)
-    # hvac_policy_path: "checkpoints/HVAC_PPO_20250505_100544/hvac_ppo_1005568.pth" # Path to trained policy checkpoint
-    # use_rl_hvac: false               # Disable RL HVAC for this DC
-    # hvac_controller_type: "none"     # Explicitly none
-    # hvac_policy_path: null           # Path not needed

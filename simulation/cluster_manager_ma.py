@@ -47,6 +47,10 @@ class DatacenterClusterManagerMA:
         }
         self.num_dcs = len(self.nodes)
         
+        # Create a single, globally consistent, sorted list of DC IDs.
+        # This will be the "canonical" order for the entire simulation.
+        self._canonical_dc_order: List[int] = sorted(self.nodes.keys())
+        
         if max_total_options < self.num_dcs:
             raise ValueError(f"max_total_options ({max_total_options}) must be >= number of datacenters ({self.num_dcs})")
         self.max_total_options = max_total_options
@@ -60,8 +64,11 @@ class DatacenterClusterManagerMA:
         
         # Define the fixed feature order for a destination option
         self.DESTINATION_OPTION_FEATURE_ORDER = [
-            "is_local", "worker_queue_len", "cpu_avail_pct", "gpu_avail_pct",
-            "price", "ci", "transmission_cost_per_gb", "transmission_delay_s_per_gb"
+            "is_local",
+            "cpu_avail_pct",
+            "gpu_avail_pct",
+            "ci",
+            "external_temperature" # New
         ]
         self.D_OPTION_FEAT = len(self.DESTINATION_OPTION_FEATURE_ORDER)
 
@@ -128,68 +135,103 @@ class DatacenterClusterManagerMA:
         
         return tasks_by_origin
 
-    def _prepare_all_manager_observations(self, current_time_utc: pd.Timestamp) -> Dict[int, Dict]:
-        """Assembles the full, complex observation for every DTA_Manager."""
+
+    def _prepare_all_manager_observations(self, current_time_utc: pd.Timestamp) -> Dict[str, Any]:
+        """
+        Assembles the full, complex observation for every DTA_Manager.
+
+        This method ensures a globally consistent order for destination options,
+        which is critical for training a shared policy. Action index 'k' will
+        always correspond to the k-th datacenter in a sorted list of all DCs.
+        The agent uses the 'is_local' feature to identify its own datacenter
+        within this globally consistent list.
+
+        Returns:
+            A dictionary containing two keys:
+            - "observations": A dict mapping each manager's dc_id to its observation data.
+            - "valid_options_maps": A helper dict for mapping action indices to destination info.
+        """
         all_observations = {}
-        
-        # 1. Get the current state of all DCs for remote queries
+        all_valid_options_maps = {}
+
+        # 1. Gather the current state of all DC nodes at once for efficiency.
         remote_query_states = {dc_id: node.get_state_for_remote_query() for dc_id, node in self.nodes.items()}
 
-        # 2. For each DTA_Manager, construct its unique observation
+        # 2. For each DTA_Manager, construct its unique observation.
         for dc_id, node in self.nodes.items():
-            local_obs_part = node.prepare_manager_observation(current_time_utc)
-            
-            options_list = []
-            # Add local DC as the first option
-            local_option_dict = local_obs_part['local_destination_option_features']
-            # Make sure it has all keys, even if transmission is zero
-            local_option_dict['transmission_cost_per_gb'] = 0.0
-            local_option_dict['transmission_delay_s_per_gb'] = 0.0
-            options_list.append(local_option_dict)
-            
-            # Add all other remote DCs as options
-            for remote_dc_id, remote_node in self.nodes.items():
-                if remote_dc_id == dc_id:
-                    continue
-                
-                remote_state = remote_query_states[remote_dc_id]
-                
-                # We need a representative bandwidth to calculate delay. Let's use 1 GB.
-                # The agent can learn to scale this.
-                task_bw_placeholder = 1.0 
-                delay_s = get_transmission_delay(node.location, remote_node.location, self.cloud_provider, task_bw_placeholder)
-                
-                origin_region = map_location_to_region(node.location, self.cloud_provider)
-                dest_region = map_location_to_region(remote_node.location, self.cloud_provider)
-                cost_per_gb = self.transmission_cost_matrix.loc[origin_region, dest_region]
+            # Get the meta-task vector for tasks originating at this node.
+            meta_task_vector = node.prepare_manager_observation(current_time_utc)["obs_manager_meta_task_i"]
 
-                remote_option_features = {
-                    "is_local": 0.0,
-                    **remote_state,
+            # This list will hold the feature dictionaries for each destination option.
+            options_list = []
+
+            # 3. Build the options list using the canonical (sorted) order.
+            # This ensures that for EVERY manager, the option at index `k`
+            # always corresponds to the same physical datacenter.
+            for dest_dc_id in self._canonical_dc_order:
+                dest_node = self.nodes[dest_dc_id]
+                
+                # Determine if this destination is the manager's own local DC.
+                # This feature is now critical for the agent's context.
+                is_local_flag = 1.0 if dest_dc_id == dc_id else 0.0
+
+                # Get the state of the destination DC.
+                destination_state = remote_query_states[dest_dc_id]
+                
+                # Set transmission features to zero if local, otherwise calculate them.
+                if is_local_flag == 1.0:
+                    cost_per_gb = 0.0
+                    delay_s = 0.0
+                else:
+                    # For remote options, calculate network cost and delay.
+                    # Using a 1.0 GB placeholder for delay calculation per GB.
+                    delay_s = get_transmission_delay(node.location, dest_node.location, self.cloud_provider, 1.0)
+                    origin_region = map_location_to_region(node.location, self.cloud_provider)
+                    dest_region = map_location_to_region(dest_node.location, self.cloud_provider)
+                    cost_per_gb = self.transmission_cost_matrix.loc[origin_region, dest_region]
+
+                # Assemble all features for this destination option into a dictionary.
+                option_features = {
+                    "is_local": is_local_flag,
+                    "dc_id": dest_dc_id,
+                    "location": dest_node.location,
+                    **destination_state,  # Unpacks dict items like 'ci', 'cpu_avail_pct'
                     "transmission_cost_per_gb": cost_per_gb,
-                    "transmission_delay_s_per_gb": delay_s # Simplification for now
+                    "transmission_delay_s_per_gb": delay_s,
+                    "external_temperature": dest_node.weather_manager.get_current_temperature(norm=False)
                 }
-                options_list.append(remote_option_features)
-            
-            # 3. Convert to padded NumPy array and create mask
+                options_list.append(option_features)
+
+            # 4. Convert the list of feature dicts into a padded NumPy array for the NN.
             num_valid_options = len(options_list)
             padded_options_array = np.zeros((self.max_total_options, self.D_OPTION_FEAT), dtype=np.float32)
-            mask = np.ones(self.max_total_options, dtype=bool) # True means MASKED/INVALID
-
-            for i, option_dict in enumerate(options_list):
-                padded_options_array[i] = np.array([option_dict[key] for key in self.DESTINATION_OPTION_FEATURE_ORDER], dtype=np.float32)
             
-            mask[:num_valid_options] = False # First M options are valid
+            for i, option_dict in enumerate(options_list):
+                # Build the feature vector in the correct, predefined order.
+                # Use .get(key, 0.0) for safety in case a key is missing.
+                feature_vector = [option_dict.get(key, 0.0) for key in self.DESTINATION_OPTION_FEATURE_ORDER]
+                padded_options_array[i] = np.array(feature_vector, dtype=np.float32)
 
-            # 4. Assemble the final observation dictionary for this manager
+            # 5. Create the padding mask for the attention layer.
+            # `True` means the position is masked (invalid/padded).
+            mask = np.ones(self.max_total_options, dtype=bool)
+            mask[:num_valid_options] = False  # Mark the actual options as valid (not masked).
+
+            # 6. Assemble the final observation dictionary for this specific manager.
             all_observations[dc_id] = {
-                "obs_manager_meta_task_i": local_obs_part["obs_manager_meta_task_i"],
+                "obs_manager_meta_task_i": meta_task_vector,
                 "obs_all_options_set_padded": padded_options_array,
                 "all_options_padding_mask": mask,
-                "valid_options_map": {i: opt_dict for i, opt_dict in enumerate(options_list)} # Helper for action application
             }
             
-        return all_observations
+            # Also store the helper map for robust action application later.
+            all_valid_options_maps[dc_id] = {i: opt_dict for i, opt_dict in enumerate(options_list)}
+
+        # 7. Return the final payload containing observations and helper maps.
+        return {
+            "observations": all_observations,
+            "valid_options_maps": all_valid_options_maps
+        }
 
     def step_marl(self, current_time_utc: pd.Timestamp,
                   manager_actions: Dict[int, int],
@@ -266,18 +308,33 @@ class DatacenterClusterManagerMA:
 
 
     def step_manager(self, current_time_utc: pd.Timestamp,
-                  manager_actions: Dict[int, int]) -> None:
+                     manager_actions: Dict[int, int],
+                     valid_options_maps: Dict[int, Dict]) -> None:
     
         for dc_id, manager_action_idx in manager_actions.items():
             node = self.nodes[dc_id]
-            # Need to map the action index back to a destination DC ID
-            # We assume the order of options was [local, remote1, remote2, ...]
-            all_dc_ids = sorted(self.nodes.keys())
-            if manager_action_idx == 0:
-                chosen_dest_id = dc_id # Local
-            else:
-                remote_ids = [other_id for other_id in all_dc_ids if other_id != dc_id]
-                chosen_dest_id = remote_ids[manager_action_idx - 1]
+            
+            # ### --- THE FIX IS HERE --- ###
+            # --- Start of new, corrected logic ---
+
+            # 1. Get the correct map for this specific manager
+            options_map_for_dc = valid_options_maps.get(dc_id)
+
+            # 2. Safety check: ensure the map and action index are valid
+            if not options_map_for_dc or manager_action_idx not in options_map_for_dc:
+                if self.logger:
+                    self.logger.error(f"FATAL: Invalid action index {manager_action_idx} for DC {dc_id}. "
+                                    f"This indicates a mismatch between agent's action space and "
+                                    f"the observation. Skipping manager action for this DC.")
+                continue
+
+            # 3. Robustly get the chosen destination's information from the map
+            chosen_option_info = options_map_for_dc[manager_action_idx]
+
+            # 4. Extract the destination ID directly from the chosen option's info
+            chosen_dest_id = chosen_option_info['dc_id']
+            
+            # ### --- END OF FIX --- ###
 
             tasks_to_transfer = node.apply_manager_decision(chosen_dest_id)
             for task in tasks_to_transfer:

@@ -13,10 +13,11 @@ class CarbonEmissionsReward(BaseReward):
         total_emissions_kg = np.float64(0.0)
         if "datacenter_infos" in cluster_info:
             for dc_info in cluster_info["datacenter_infos"].values():
+                # print(f"Datacenter carbon emissions: {dc_info['__common__'].get('carbon_emissions_kg', 0.0)} kg")
                 total_emissions_kg += dc_info["__common__"].get("carbon_emissions_kg", 0.0)
         
         # Add transmission emissions from the global results
-        total_emissions_kg += cluster_info.get("transmission_emissions_total_kg", 0.0)
+        # total_emissions_kg += cluster_info.get("transmission_emissions_total_kg", 0.0)
 
         reward = -total_emissions_kg / self.normalize_factor
         self.last_reward = float(reward)

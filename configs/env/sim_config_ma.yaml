@@ -12,6 +12,6 @@ simulation:
   strategy: "marl"
   use_tensorboard: true
   log_dir: "runs/train_run"
-  max_total_options: 10
+  max_total_options: 7
 
   aggregation_method: "average" # or "sum", "max", "nn_embedder" (future)

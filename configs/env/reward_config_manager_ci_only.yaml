@@ -1,0 +1,18 @@
+# configs/env/reward_config_manager_ci_proportional.yaml
+#
+# A reward for the DTA_Manager that is proportional to the workload size.
+# It incentivizes sending more work to greener datacenters.
+
+reward:
+  # Use the new registered name
+  # name: "manager_ci_proportional"
+
+  # args:
+  #   ci_normalization_factor: 10.0
+  #   # You can choose how to measure the "size" of the work
+  #   workload_measure: "num_tasks" # Options: "num_tasks", "total_cpu", "total_gpu"
+  
+  name: "carbon_emissions"
+
+  args:
+    normalize_factor: 100.0

@@ -121,7 +121,7 @@ class DatacenterNodeMA:
             "cpu_avail_pct": self.physical_dc_model.available_cores / self.physical_dc_model.total_cores,
             "gpu_avail_pct": self.physical_dc_model.available_gpus / self.physical_dc_model.total_gpus,
             "price": self.price_manager.get_current_price(),
-            "ci": self.ci_manager.get_current_ci(norm=False),
+            "ci": self.ci_manager.get_current_ci(norm=False)/100,
             "transmission_cost": 0.0,
             "transmission_delay_s": 0.0
         }
@@ -178,14 +178,18 @@ class DatacenterNodeMA:
                 self.logger.info(f"[DC {self.dc_id}] DTA_Manager routing {len(tasks_to_process)} tasks to remote DC {chosen_destination_dc_id}.")
             return tasks_to_process
 
-    def apply_worker_decision(self, action_execute_now: bool, current_time_utc: pd.Timestamp):
+    def apply_worker_decision(self, action_execute_now: int, current_time_utc: pd.Timestamp):
         """
         Processes the DTA_Worker's decision (Execute Now vs. Defer Locally).
+        action_execute_now is an integer where:
+        - 0 means "defer locally" (do not attempt to schedule tasks now)
+        - 1 means "execute now" (attempt to schedule tasks immediately)
+
         
         Returns:
             List[Task]: The list of tasks that were successfully scheduled to run.
         """
-        if not action_execute_now:
+        if action_execute_now == 0:
             # Defer locally: tasks simply remain in the worker_commitment_queue.
             if self.logger:
                 self.logger.info(f"[DC {self.dc_id}] DTA_Worker deferred {len(self.worker_commitment_queue)} tasks.")
@@ -268,5 +272,5 @@ class DatacenterNodeMA:
             "cpu_avail_pct": self.physical_dc_model.available_cores / self.physical_dc_model.total_cores,
             "gpu_avail_pct": self.physical_dc_model.available_gpus / self.physical_dc_model.total_gpus,
             "price": self.price_manager.get_current_price(),
-            "ci": self.ci_manager.get_current_ci(norm=False)
+            "ci": self.ci_manager.get_current_ci(norm=False)/100,  # Normalize CI to a better scale
         }

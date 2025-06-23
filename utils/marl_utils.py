@@ -37,6 +37,17 @@ def aggregate_tasks_for_manager(task_queue: Deque[Task], current_time_utc: pd.Ti
     Aggregates tasks from the DTA_Manager's Originating_Tasks_Queue
     into a fixed-size descriptor vector.
     """
+    '''
+    No, it is not expected that _get_observations (and by extension _prepare_all_manager_observations) is called multiple times per global_step. This is inefficient and, more importantly, it's the direct cause of the bug you identified: the meta-task is always zeros.
+    The Problem: The Flawed manager_step/worker_step/env_step Sequence
+    '''
+    # print(f'Fix the logic calling 3 times to aggregate_tasks_for_manager from:')
+    # print(f'1. manager_step: {task_queue}')
+    # print(f'2. worker_step: {task_queue}')
+    # print(f'3. env_step: {task_queue}')
+    # print(f'Current time UTC: {current_time_utc}')
+    
+
     num_tasks = len(task_queue)
     if num_tasks == 0:
         return np.zeros(D_META_MANAGER, dtype=np.float32)

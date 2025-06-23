@@ -85,6 +85,14 @@ class SustainClusterMAEnv(gym.Env):
         
         # DTA_Worker Action Space (0=Execute, 1=Defer)
         self._worker_action_space = spaces.Discrete(2)
+        
+        # ### --- FIX: Add instance variables to store state between steps --- ###
+        self.last_manager_actions: Dict[int, int] = {}
+        self.last_worker_actions: Dict[int, int] = {}
+        self.last_valid_options_maps: Dict[int, Dict] = {}
+        self.last_manager_workload_magnitudes: Dict[int, Dict[str, float]] = {}
+
+        # ### --- END OF FIX --- ###
 
         # For multi-agent compatibility, we can use these helper functions
         # Some MARL libraries (like PettingZoo) require these.
@@ -116,9 +124,18 @@ class SustainClusterMAEnv(gym.Env):
             np.sin(2 * np.pi * hour_of_day / 24.0), np.cos(2 * np.pi * hour_of_day / 24.0)
         ], dtype=np.float32)
 
-        # Get raw structured observations from manager
-        manager_obs_raw = self.cluster_manager_ma._prepare_all_manager_observations(self.current_time)
+        # ### --- THE FIX IS HERE --- ###
+        # Get the full dictionary from the cluster manager
+        full_manager_obs_data = self.cluster_manager_ma._prepare_all_manager_observations(self.current_time)
         
+        # Unpack the dictionary into its components
+        manager_obs_raw = full_manager_obs_data["observations"]
+        valid_options_maps = full_manager_obs_data["valid_options_maps"]
+
+        # Store the helper map for the reward calculation in env_step
+        self.last_valid_options_maps = valid_options_maps
+        # ### --- END OF FIX --- ###
+
         # Prepare final observation dict for all agents
         obs_dict = {}
         for dc_id, node in self.cluster_manager_ma.nodes.items():
@@ -157,7 +174,8 @@ class SustainClusterMAEnv(gym.Env):
             
         return self._get_observations(), {agent_id: {} for agent_id in self.agents}
 
-    def step(self, actions: Dict[str, Any]) -> Tuple[Dict, Dict, Dict, Dict, Dict]:
+    # This step methos is not used.
+    def step_deprecated(self, actions: Dict[str, Any]) -> Tuple[Dict, Dict, Dict, Dict, Dict]:
         """
         Takes a step in the environment for all agents.
 
@@ -217,17 +235,39 @@ class SustainClusterMAEnv(gym.Env):
     def manager_step(self, mgr_act: Dict[int, int]) -> Dict[str, Any]:
         """Route / migrate tasks """
         # generate new tasks for this tick
+        self.last_manager_actions = mgr_act
         self.cluster_manager_ma.task_origination(self.current_time)
+        
+        # --- Start of New Logic ---
+        
+        # BEFORE applying the manager's decision, record the state of the queue.
+        # This is the "magnitude" of the decision we need for the reward.
+        self.last_manager_workload_magnitudes.clear() # Clear from previous step
+        for dc_id, node in self.cluster_manager_ma.nodes.items():
+            queue = node.originating_tasks_queue
+            self.last_manager_workload_magnitudes[dc_id] = {
+                "num_tasks": len(queue),
+                "total_cpu": sum(task.cores_req for task in queue),
+                "total_gpu": sum(task.gpu_req for task in queue)
+            }
+        
+        # --- End of New Logic ---
+
         if self.cluster_manager_ma.is_cluster_idle():
             return self._get_observations()
         filtered = {dc: a for dc, a in mgr_act.items()
                     if self.cluster_manager_ma.nodes[dc].originating_tasks_queue}
         if filtered:
-            self.cluster_manager_ma.step_manager(self.current_time, filtered)
+            self.cluster_manager_ma.step_manager(
+                self.current_time,
+                filtered,
+                self.last_valid_options_maps  # <--- Pass the required argument
+            )
         return self._get_observations()
     
     def worker_step(self, wrk_act: Dict[int, bool]) -> Dict[str, Any]:
         """Execute / defer tasks - *no* time advance."""
+        self.last_worker_actions = wrk_act
         any_queue = any(self.cluster_manager_ma.nodes[dc].worker_commitment_queue
                         for dc in self._dc_ids)
         if any_queue:
@@ -237,11 +277,29 @@ class SustainClusterMAEnv(gym.Env):
     def env_step(self) -> Tuple[Dict, Dict, Dict, Dict, Dict]:
         """15-min physical sim + reward."""
         results = self.cluster_manager_ma.step_physics(self.current_time)  
+        
+        results['nodes'] = self.cluster_manager_ma.nodes
+        
         self.current_time += self.time_step
 
         next_observations = self._get_observations()
-        global_reward = self.reward_fn(cluster_info=results, current_time=self.current_time)
-        rewards = {agent_id: global_reward for agent_id in self.agents}
+        per_agent_rewards = self.reward_fn(
+            cluster_info=results,
+            current_time=self.current_time,
+            # manager_actions=self.last_manager_actions,
+            # worker_actions=self.last_worker_actions,
+            # valid_options_maps=self.last_valid_options_maps,
+            # workload_magnitudes=self.last_manager_workload_magnitudes # Pass the new info
+        )
+        # If the reward function returns a float (global reward), convert to per-agent dict
+        if isinstance(per_agent_rewards, float) or isinstance(per_agent_rewards, int):
+            rewards = {agent_id: float(per_agent_rewards) for agent_id in self.agents}
+        else:
+            rewards = per_agent_rewards
+
+        for agent_id in self.agents:
+            if agent_id not in rewards:
+                rewards[agent_id] = 0.0
 
         terminated = self.current_time >= self.end_time
         terminations = {agent_id: terminated for agent_id in self.agents}
