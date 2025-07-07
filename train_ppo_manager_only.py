@@ -24,6 +24,23 @@ from torch.utils.tensorboard import SummaryWriter
 from utils.vec_normalize import VecNormalize # <-- Add this import
 
 
+class RunningStats:
+    def __init__(self, eps=1e-5):
+        self.mean = 0.0
+        self.var = 1.0
+        self.count = eps
+
+    def update(self, x):
+        x = float(x)
+        self.count += 1
+        last_mean = self.mean
+        self.mean += (x - self.mean) / self.count
+        self.var += (x - last_mean) * (x - self.mean)
+
+    def normalize(self, x):
+        std = max(np.sqrt(self.var / self.count), 1e-6)
+        return (x - self.mean) / std
+    
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -118,6 +135,9 @@ def train():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # --- Reward Normalization ---
+    reward_stats = RunningStats()
 
     # --- 2. Environment Setup ---
     # Create the base environment first
@@ -195,7 +215,9 @@ def train():
 
             per_agent_rewards = [rewards_dict.get(f"manager_{dc_id}", 0.0) for dc_id in env.venv._dc_ids]
             global_reward = np.mean(per_agent_rewards)
-            rewards_storage[step] = torch.tensor([global_reward] * num_agents).to(device)
+            reward_stats.update(global_reward)
+            normed_reward = reward_stats.normalize(global_reward)
+            rewards_storage[step] = torch.tensor([normed_reward] * num_agents).to(device)
             current_episode_return += global_reward
             
             is_done = dones_dict["__all__"]

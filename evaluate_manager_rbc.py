@@ -52,7 +52,7 @@ SEED = 123  # We will evaluate on a single, fixed seed for reproducibility
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 log_dir = f"logs/eval_manager_{timestamp}"
 os.makedirs(log_dir, exist_ok=True)
-log_path = os.path.join(log_dir, f"evaluation_manager_{timestamp}.log")
+log_path = os.path.join(log_dir, f"evaluation_RBC_manager_{timestamp}.log")
 results_csv_path = os.path.join(log_dir, f"results_manager_{timestamp}.csv")
 logger = logging.getLogger("eval_manager_logger")
 logger.setLevel(logging.INFO)
@@ -128,7 +128,6 @@ if not os.path.exists(DEFAULT_RL_CHECKPOINT_PATH):
 device = torch.device("cpu")
 # NOTE: The checkpoint saving function might need to be adjusted.
 # Assuming it saves a dictionary with 'actor_state_dict'.
-checkpoint = torch.load(DEFAULT_RL_CHECKPOINT_PATH, map_location=device)
 
 # ### --- SIMPLIFICATION CHANGE: Recreate the simple MLP actor --- ###
 # Dynamically get network dimensions from the simplified environment
@@ -140,24 +139,12 @@ action_dim = temp_env.action_space(first_mgr_id).n
 del temp_env
 
 # Re-create the MLP actor network
-actor = ManagerActorMLP(obs_dim, action_dim, hidden_dim=16).to(device)
-actor.load_state_dict(checkpoint['actor_state_dict'])
-actor.eval()
+actor = LowestCarbonController(num_actions=3)
 logger.info("Successfully loaded PPO Manager Actor policy.")
 
 # --- Create the final evaluation environment in simple mode ---
-base_eval_env = make_eval_env(base_sim_cfg_dict, base_dc_cfg_dict, base_reward_cfg_dict,
+env = make_eval_env(base_sim_cfg_dict, base_dc_cfg_dict, base_reward_cfg_dict,
                     EVALUATION_DURATION_DAYS, SEED, simple_obs_mode=True)
-env = VecNormalize(venv=base_eval_env)
-
-# Load the saved running mean/std from the checkpoint
-if 'obs_rms' in checkpoint:
-    env.obs_rms = checkpoint['obs_rms']
-    logger.info("Successfully loaded observation normalization stats.")
-else:
-    print("WARNING: No observation normalization stats found in checkpoint. Using default stats.")
-    
-env.eval() 
 
 # %%
 # --- Simulation Loop ---
@@ -176,14 +163,9 @@ for step in tqdm(range(num_steps), desc=f"Simulating PPO Agent (Seed {SEED})"):
     # Create a single batch tensor for the model
     obs_tensor = torch.from_numpy(np.stack(obs_list)).float().to(device)
 
-    # 2. Get a deterministic action `a_t` from the actor.
-    with torch.no_grad():
-        logits = actor(obs_tensor)
-        actions = torch.argmax(logits, dim=1)
-
-    # 3. Assemble the full action dictionary for the single, unified `step` method.
-    actions_dict = {f"manager_{dc_id}": actions[i].item() for i, dc_id in enumerate(env._dc_ids)}
-    actions_dict.update({f"worker_{dc_id}": 1 for dc_id in env._dc_ids})
+    manager_actions = actor.get_actions(obs_dict)
+    actions_dict = manager_actions.copy()
+    actions_dict.update({agent_id: 1 for agent_id in env.worker_agent_ids})
 
     # 4. Call the single `env.step()` method.
     next_obs, rew_dict, dones_dict, trunc_dict, info_dict = env.step(actions_dict)

@@ -3,7 +3,7 @@ import os
 import zipfile
 from collections import defaultdict
 from envs.sustaindc.sustaindc_env import SustainDC
-from utils.task_assignment_strategies import (DistributeMostAvailable, DistributeRandom, DistributePriorityOrder, DistributeLowestPrice, DistributeLeastPending, 
+from utils.deprecated_task_assignment_strategies import (DistributeMostAvailable, DistributeRandom, DistributePriorityOrder, DistributeLowestPrice, DistributeLeastPending, 
                                                 DistributeLowestCarbon, DistributeRoundRobin, DistributeLowestUtilization, BaseRBCStrategy, DistributeLocalOnly)
 
 import numpy as np

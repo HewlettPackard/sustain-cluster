@@ -12,7 +12,7 @@ ppo_algorithm:
   update_epochs: 5         # Number of times to iterate over the collected rollout data.
   minibatch_size: 128        # Size of the minibatch for each update. This is used to break down the collected data into smaller batches.
   
-  gamma: 0.90               # Discount factor for future rewards.
+  gamma: 0.95               # Discount factor for future rewards.
   gae_lambda: 0.90          # Lambda for Generalized Advantage Estimation (GAE). Controls bias-variance trade-off.
   clip_coef: 0.25            # The clipping parameter (epsilon) in the PPO objective function.
 

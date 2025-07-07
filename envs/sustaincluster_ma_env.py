@@ -280,7 +280,7 @@ class SustainClusterMAEnv(gym.Env):
         self.current_time = self.start_time
         
         # Set numpy random seed for reproducibility
-        if seed is None:
+        if seed is not None:
             np.random.seed(seed)
             
         
