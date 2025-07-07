@@ -60,6 +60,7 @@ class SustainDC(gym.Env):
         
         self.dc_config_file = env_config['dc_config_file']
         self.timezone_shift = env_config['timezone_shift']
+        self.duration_days = env_config['duration_days']
         
         # Assign month according to worker index, if available
         if hasattr(env_config, 'worker_index'):
@@ -245,15 +246,16 @@ class SustainDC(gym.Env):
             
     def set_seed(self, seed=None):
         """Set the random seed for the environment."""
-        seed = seed or 1
-        np.random.seed(seed)
-        random.seed(seed)
-        if torch is not None:
-            torch.manual_seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(seed)
+        if seed is None:
+            seed = seed or 1
+            np.random.seed(seed)
+            random.seed(seed)
+            if torch is not None:
+                torch.manual_seed(seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(seed)
 
-        self._seed_spaces()
+            self._seed_spaces()
 
     def _seed_spaces(self):
         """Seed the action and observation spaces."""
@@ -290,7 +292,7 @@ class SustainDC(gym.Env):
 
         # **Reinitialize the managers with new paths**
         self.simulation_year = init_year
-        self.t_m = Time_Manager(init_day, timezone_shift=self.timezone_shift)
+        self.t_m = Time_Manager(init_day, timezone_shift=self.timezone_shift, duration_days=self.duration_days)
         self.ci_manager = CI_Manager(location=self.location, simulation_year=self.simulation_year, timezone_shift=self.timezone_shift)
         self.weather_manager = Weather_Manager(location=self.location, simulation_year=self.simulation_year, timezone_shift=self.timezone_shift)
         self.price_manager = ElectricityPrice_Manager(location=self.location, simulation_year=self.simulation_year, timezone_shift=self.timezone_shift)
@@ -381,7 +383,7 @@ class SustainDC(gym.Env):
         self._perform_actions(action_dict)
     
         # Step the managers (time, workload, weather, CI) (t+1)
-        day, hour, t_i, manager_done = self.t_m.step()
+        day, hour, t_i, manager_truncated = self.t_m.step()
         # workload = self.workload_m.step()
         temp, norm_temp, wet_bulb, norm_wet_bulb = self.weather_manager.step()
         ci_i, ci_i_future, ci_i_denorm = self.ci_manager.step()
@@ -395,6 +397,7 @@ class SustainDC(gym.Env):
 
         num_tasks_assigned = 0
         routed_tasks_this_step = []
+        
         # **2. Try scheduling pending tasks (FIFO order)**
         for _ in range(len(self.pending_tasks)):  # Process each task once
             task = self.pending_tasks.popleft()  # Take the first task from the queue
@@ -419,7 +422,7 @@ class SustainDC(gym.Env):
         mem_util = used_mem / self.total_mem_GB
         # print(f"[{self.current_time_task}] DC:{self.dc_id} Running: {len(self.running_tasks)}, Pending: {len(self.pending_tasks)}")
         if logger:
-            logger.info(f"[{self.current_time_task}] DC:{self.dc_id} Running: {len(self.running_tasks)}, Pending: {len(self.pending_tasks)}")
+            logger.info(f"[{self.current_time_task}] DC:{self.dc_id} Running: {len(self.running_tasks)}, Pending: {len(self.pending_tasks)}, CPU Utilization: {cpu_workload:.2%}, GPU Utilization: {gpu_workload:.2%}, MEM Utilization: {mem_util:.2%}")
 
         # Update environment states with new values from managers
         self._update_environments(cpu_workload, gpu_workload, mem_util, temp, wet_bulb, ci_i_denorm, ci_i_future, day, hour)
@@ -490,6 +493,11 @@ class SustainDC(gym.Env):
             "hvac_setpoint_c": self.current_crac_setpoint
 
         })
+        
+        # update the truncated and terminated flags
+        if manager_truncated:
+            truncateds["__all__"] = True
+            print(f"[DC {self.dc_id}] Environment truncated at time {self.current_time_task}.")
 
         return obs, rew, terminateds, truncateds, self.infos
 

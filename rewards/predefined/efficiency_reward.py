@@ -7,7 +7,8 @@ class EfficiencyReward(BaseReward):
         super().__init__()
         self.normalize_factor = normalize_factor
         
-    def __call__(self, cluster_info, current_tasks, current_time):
+    # def __call__(self, cluster_info, current_tasks, current_time):
+    def __call__(self, cluster_info, current_time):
         total_energy = sum(
             dc_info["__common__"].get("energy_consumption_kwh", 0)
             for dc_info in cluster_info["datacenter_infos"].values()

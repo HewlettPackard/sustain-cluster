@@ -1,14 +1,14 @@
 algorithm:
   name: SAC
-  gamma: 0.99
-  alpha: 0.01
-  actor_learning_rate: 3e-5
-  critic_learning_rate: 3e-5
+  gamma: 0.9
+  alpha: 0.2
+  actor_learning_rate: 1e-4
+  critic_learning_rate: 1e-4
   batch_size: 512
   tau: 0.005
   replay_buffer_size: 1000000
   warmup_steps: 20000
-  total_steps: 20000000
+  total_steps: 200000000
   update_frequency: 1
   policy_update_frequency: 2
   save_interval: 10000
@@ -17,14 +17,5 @@ algorithm:
   use_layer_norm: true # or false
   device: auto  # auto = use CUDA if available
 
-  eval_frequency: 100000  # Evaluate every N global training steps
+  eval_frequency: 10000  # Evaluate every N global training steps
   eval_episodes: 5       # Number of episodes to run for each evaluation
-
-  # Optional: Attention-specific hyperparameters (if use_attention: true)
-  use_attention: false
-  attention:
-    embed_dim: 64
-    num_heads: 1
-    num_attention_layers: 1
-    hidden_dim_ff: 64 # dim_feedforward in TransformerEncoderLayer
-    dropout: 0.1

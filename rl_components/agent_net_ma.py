@@ -265,17 +265,27 @@ import torch.nn.functional as F
 from typing import Optional, Tuple
 
 class MLP(nn.Module):
-    """Two layer MLP with optional LayerNorm."""
+    """
+    Two layer MLP with optional LayerNorm.
+    Uses a more standard block structure.
+    """
     def __init__(self, in_dim: int, hidden_dim: int, out_dim: int, *, layer_norm: bool = False):
         super().__init__()
-        layers: list[nn.Module] = [nn.Linear(in_dim, hidden_dim)]
+        
+        block: list[nn.Module] = [
+            nn.Linear(in_dim, hidden_dim),
+            nn.ReLU()
+        ]
         if layer_norm:
-            layers.append(nn.LayerNorm(hidden_dim))
-        layers += [nn.ReLU(), nn.Linear(hidden_dim, out_dim)]
-        self.net = nn.Sequential(*layers)
+            block.append(nn.LayerNorm(hidden_dim))
+            
+        self.block1 = nn.Sequential(*block)
+        self.output_layer = nn.Linear(hidden_dim, out_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        x = self.block1(x)
+        x = self.output_layer(x)
+        return x
 
 class AttentionModule(nn.Module):
     """Self-attention over option set (mask aware)."""
@@ -299,7 +309,7 @@ class SharedFeatureExtractor(nn.Module):
     def __init__(self, D_option_feat: int, encoder_hidden_dim: int, embed_dim: int,
                  num_attn_layers: int = 2, num_attn_heads: int = 2, attn_ff_dim: int = 256):
         super().__init__()
-        self.option_encoder = MLP(D_option_feat, encoder_hidden_dim, embed_dim)
+        self.option_encoder = MLP(D_option_feat, encoder_hidden_dim, embed_dim, layer_norm=True)
         self.shared_attn = AttentionModule(emb_dim=embed_dim,
                                            num_layers=num_attn_layers,
                                            num_heads=num_attn_heads,
@@ -331,8 +341,8 @@ class ManagerActor(nn.Module):
         self.max_total_options = max_total_options
         self.embed_dim = self.shared_extractor.embed_dim
 
-        self.query_mlp = MLP(D_emb_meta_manager + D_global, query_hidden_dim, self.embed_dim)
-        self.scorer_mlp = MLP(self.embed_dim * 2, scorer_hidden_dim, 1)
+        self.query_mlp = MLP(D_emb_meta_manager + D_global, query_hidden_dim, self.embed_dim, layer_norm=True)
+        self.scorer_mlp = MLP(self.embed_dim * 2, scorer_hidden_dim, 1, layer_norm=True)
 
     def forward(self,
                 emb_meta_task_mgr: torch.Tensor,
@@ -360,17 +370,26 @@ class ManagerActor(nn.Module):
                       emb_global_context_mgr: torch.Tensor,
                       obs_all_options_set_padded: torch.Tensor,
                       all_options_padding_mask: Optional[torch.Tensor] = None
-                     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: # Now returns 4 items
+        # The forward pass already applies the mask and returns masked logits
         logits = self.forward(emb_meta_task_mgr,
                               emb_global_context_mgr,
                               obs_all_options_set_padded,
                               all_options_padding_mask)
-        probs = F.softmax(logits, dim=-1)
-        dist = torch.distributions.Categorical(probs=probs)
+        
+        # We use the unmasked logits for creating the distribution
+        # The mask in forward() sets invalid logits to -inf, so softmax handles it correctly
+        dist = torch.distributions.Categorical(logits=logits)
+        
         actions = dist.sample()
-        log_probs = dist.log_prob(actions)
+        
+        # Calculate log_prob for the *sampled* action (for storing in buffer)
+        action_log_probs = dist.log_prob(actions)
+        
         entropy = dist.entropy().mean()
-        return actions, log_probs, entropy
+
+        # Return the raw logits as well for the V-value calculation
+        return actions, action_log_probs, entropy, logits
 
 class ManagerCritic(nn.Module):
     """
@@ -395,13 +414,13 @@ class ManagerCritic(nn.Module):
 
         # Critic-specific Query MLP: Takes concatenated meta-task and global context,
         # projects to self.embed_dim to match option embeddings.
-        self.query_mlp = MLP(D_emb_meta_manager + D_global, query_hidden_dim, self.embed_dim)
+        self.query_mlp = MLP(D_emb_meta_manager + D_global, query_hidden_dim, self.embed_dim, layer_norm=True)
 
         # Twin Q-functions (Q1 and Q2)
         # Input dimension is embed_dim (for query) + embed_dim (for option) = embed_dim * 2
         # Output is a single Q-value per option for each Q-network.
-        self.Q1_mlp = MLP(self.embed_dim * 2, q_hidden_dim, 1)
-        self.Q2_mlp = MLP(self.embed_dim * 2, q_hidden_dim, 1)
+        self.Q1_mlp = MLP(self.embed_dim * 2, q_hidden_dim, 1, layer_norm=True)
+        self.Q2_mlp = MLP(self.embed_dim * 2, q_hidden_dim, 1, layer_norm=True)
 
     def forward_q_values(self,
                          emb_meta_task_mgr: torch.Tensor,          # (B, D_emb_meta_manager)

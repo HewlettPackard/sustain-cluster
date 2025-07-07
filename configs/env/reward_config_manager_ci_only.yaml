@@ -1,18 +1,28 @@
 # configs/env/reward_config_manager_ci_proportional.yaml
-#
-# A reward for the DTA_Manager that is proportional to the workload size.
-# It incentivizes sending more work to greener datacenters.
-
 reward:
-  # Use the new registered name
-  # name: "manager_ci_proportional"
-
-  # args:
-  #   ci_normalization_factor: 10.0
-  #   # You can choose how to measure the "size" of the work
-  #   workload_measure: "num_tasks" # Options: "num_tasks", "total_cpu", "total_gpu"
+  # The top-level 'name' specifies that we are using the CompositeReward class.
+  name: "composite"
+  normalize: True # Set to true if you want running mean/std on the final reward
+  freeze_stats_after_steps: 20000 # Freeze stats after 20k calls to reward function
   
-  name: "carbon_emissions"
+  # The 'components' key is a dictionary where each key is the registered
+  # name of a sub-reward function, and the value contains its arguments
+  # and a weight for combining them.
+  components:
+    # First component: Your proportional CI penalty
+    manager_ci_proportional:
+      weight: 0.6  # Example weight: 60% of the reward comes from this
+      args:
+        ci_normalization_factor: 10.0
+        workload_measure: "total_cpu"
 
-  args:
-    normalize_factor: 100.0
+    # Second component: The general carbon emissions penalty
+    carbon_emissions:
+      weight: 0.4  # Example weight: 40% of the reward comes from this
+      args:
+        normalize_factor: 10.0
+
+  # Optional: You can tell the CompositeReward itself to normalize the
+  # final combined reward. This is generally a good idea.
+
+

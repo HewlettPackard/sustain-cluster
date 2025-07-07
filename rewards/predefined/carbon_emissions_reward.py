@@ -8,7 +8,7 @@ class CarbonEmissionsReward(BaseReward):
         super().__init__()
         self.normalize_factor = np.float64(normalize_factor)
 
-    def __call__(self, cluster_info: dict, current_time): # <<< Correct signature
+    def __call__(self, cluster_info: dict, current_time=0, *args, **kwargs): # <<< Correct signature
         # Sum carbon emissions from all datacenters' operations
         total_emissions_kg = np.float64(0.0)
         if "datacenter_infos" in cluster_info:

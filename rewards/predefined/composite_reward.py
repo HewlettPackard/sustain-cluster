@@ -89,7 +89,7 @@ class CompositeReward(BaseReward):
         self.stats_frozen = True
 
 
-    def __call__(self, cluster_info, current_time):
+    def __call__(self, **kwargs):
         """ Calculates the composite reward. """
         self.steps_since_init += 1
         total_reward = np.float64(0.0)
@@ -105,7 +105,7 @@ class CompositeReward(BaseReward):
             reward_func = component["func"]
 
             # Calculate raw value from the sub-component
-            raw_value = np.float64(reward_func(cluster_info, current_time))
+            raw_value = np.float64(reward_func(**kwargs))
             self.last_unnormalized_values[name] = float(raw_value) # Store original value
 
             normalized_value = raw_value

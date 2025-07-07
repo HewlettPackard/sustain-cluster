@@ -12,7 +12,8 @@ from utils.marl_utils import (
     aggregate_tasks_for_manager,
     aggregate_tasks_for_worker,
     MANAGER_META_TASK_FEATURE_ORDER,
-    WORKER_META_TASK_FEATURE_ORDER
+    WORKER_META_TASK_FEATURE_ORDER,
+    D_META_MANAGER
 )
 from rl_components.task import Task
 
@@ -82,20 +83,27 @@ class DatacenterNodeMA:
             init_hour (int): The starting hour of the day (0-23).
             seed (int): The random seed for this episode.
         """
+        # Adjust for timezone shift
+        total_hours = init_day * 24 + init_hour + self.physical_dc_model.timezone_shift
+        adj_day = total_hours // 24
+        adj_hour = total_hours % 24
+
         # 1. Clear all MARL-specific queues
         self.originating_tasks_queue.clear()
         self.worker_commitment_queue.clear()
 
         # 2. Reset the underlying physical DC model
-        self.physical_dc_model.reset(init_year, init_day, init_hour, seed)
+        self.physical_dc_model.reset(init_year, adj_day, adj_hour, seed)
 
         # 3. Reset all environmental data managers to the correct start time
-        self.ci_manager.reset(init_day=init_day, init_hour=init_hour, seed=seed)
-        self.price_manager.reset(init_day=init_day, init_hour=init_hour, seed=seed)
-        self.weather_manager.reset(init_day=init_day, init_hour=init_hour, seed=seed)
+        self.ci_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
+        self.price_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
+        self.weather_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
+        
+        print(f"DatacenterNodeMA {self.dc_id} reset to Day {adj_day}, Hour {adj_hour} on datacenter_node_ma.py.")
         
         if self.logger:
-            self.logger.info(f"DatacenterNodeMA {self.dc_id} reset to Day {init_day}, Hour {init_hour}.")
+            self.logger.info(f"DatacenterNodeMA {self.dc_id} reset to Day {adj_day}, Hour {adj_hour}.")
 
     def add_originating_tasks(self, tasks: List[Task]):
         """Adds newly generated tasks to this DC's originating queue."""
@@ -109,26 +117,73 @@ class DatacenterNodeMA:
 
     def prepare_manager_observation(self, current_time_utc: pd.Timestamp) -> Dict[str, Any]:
         """
-        Prepares the local components of the observation for this DC's DTA_Manager.
-        The ClusterManagerMA will combine this with remote DC info.
-        """
-        meta_task_vector = aggregate_tasks_for_manager(self.originating_tasks_queue, current_time_utc)
+        Prepares the observation for this DC's DTA_Manager under the new
+        "True Meta-Task" simplification.
 
-        # These features describe this DC as a *potential destination* for its own tasks
+        The originating_tasks_queue is expected to contain at most ONE meta-task.
+        This method extracts features from that single task to form the observation.
+        """
+        # The `task_snapshot` argument is no longer needed as we directly
+        # inspect the queue, which now holds the single meta-task.
+        task_snapshot = list(self.originating_tasks_queue)
+
+        # --- START OF NEW, SIMPLIFIED LOGIC ---
+
+        if not task_snapshot:
+            # If the queue is empty, there is no meta-task for the manager to consider.
+            # The observation vector is all zeros.
+            meta_task_vector = np.zeros(D_META_MANAGER, dtype=np.float32)
+            
+            # The workload magnitude is also zero.
+            workload_magnitude_dict = {"num_tasks": 0, "total_cpu": 0, "total_gpu": 0}
+
+        else:
+            # The queue is not empty, so it contains our single meta-task.
+            the_meta_task = task_snapshot[0]
+
+            # Create the feature vector directly from the attributes of this one task.
+            # Note: The features must match the order and number defined by D_META_MANAGER.
+            time_to_deadline = (the_meta_task.sla_deadline - current_time_utc).total_seconds() / 60.0
+            sla_urgency = 1.0 / (time_to_deadline + 1e-6)
+
+            meta_task_vector = np.array([
+                1.0, # num_tasks is always 1, since it's one meta-task
+                the_meta_task.cores_req,
+                the_meta_task.gpu_req,
+                the_meta_task.mem_req,
+                the_meta_task.bandwidth_gb,
+                the_meta_task.duration, # This is the max_duration
+                sla_urgency,
+                # Any other features defined by D_META_MANAGER...
+                # Make sure the total number of features matches D_META_MANAGER.
+            ], dtype=np.float32)
+
+            # The workload magnitude is simply the features of this one meta-task.
+            # The name `num_tasks` is now slightly misleading (it's the number of meta-tasks),
+            # but we keep it for consistency.
+            workload_magnitude_dict = {
+                "num_tasks": 1,
+                "total_cpu": the_meta_task.cores_req,
+                "total_gpu": the_meta_task.gpu_req
+            }
+
+        # --- END OF NEW, SIMPLIFIED LOGIC ---
+
+        # The logic for describing this DC as a destination option remains the same.
         local_option_features = {
-            "is_local": 1.0, # Flag to indicate this is the local option
+            "is_local": 1.0,
             "worker_queue_len": float(len(self.worker_commitment_queue)),
             "cpu_avail_pct": self.physical_dc_model.available_cores / self.physical_dc_model.total_cores,
             "gpu_avail_pct": self.physical_dc_model.available_gpus / self.physical_dc_model.total_gpus,
             "price": self.price_manager.get_current_price(),
-            "ci": self.ci_manager.get_current_ci(norm=False)/100,
-            "transmission_cost": 0.0,
-            "transmission_delay_s": 0.0
+            "ci": self.ci_manager.get_current_ci(norm=False) / 100, # Example scaling
+            "external_temperature": self.weather_manager.get_current_temperature(norm=False) / 10 # Example scaling
         }
         
         return {
             "obs_manager_meta_task_i": meta_task_vector,
-            "local_destination_option_features": local_option_features
+            "local_destination_option_features": local_option_features,
+            "workload_magnitude_dict": workload_magnitude_dict
         }
 
     def prepare_worker_observation(self, current_time_utc: pd.Timestamp) -> Dict[str, np.ndarray]:
@@ -229,7 +284,7 @@ class DatacenterNodeMA:
                 self.logger.warning(f"[DC {self.dc_id}] DTA_Worker tried to execute {len(tasks_to_attempt_scheduling)} tasks, but {len(unschedulable_tasks)} could not be scheduled due to resource limits.")
 
         if self.logger and newly_scheduled_tasks:
-            self.logger.info(f"[DC {self.dc_id}] DTA_Worker executed {len(newly_scheduled_tasks)} tasks.")
+            self.logger.info(f"[DC {self.dc_id}] DTA_Worker started the execution of {len(newly_scheduled_tasks)} tasks.")
             
         return newly_scheduled_tasks
 
@@ -257,9 +312,9 @@ class DatacenterNodeMA:
         # `action_dict` for the physical model is now for local components (e.g., HVAC)
         # For now, we pass an empty dict to use default behavior.
         local_action_dict = {}
-        _, _, _, _, info = self.physical_dc_model.step(local_action_dict, self.logger)
+        _, _, terminateds, truncateds, info = self.physical_dc_model.step(local_action_dict, self.logger)
         
-        return info
+        return terminateds, truncateds, info
 
     # --- Helper methods for remote queries ---
     def get_state_for_remote_query(self) -> Dict[str, float]:
@@ -273,4 +328,5 @@ class DatacenterNodeMA:
             "gpu_avail_pct": self.physical_dc_model.available_gpus / self.physical_dc_model.total_gpus,
             "price": self.price_manager.get_current_price(),
             "ci": self.ci_manager.get_current_ci(norm=False)/100,  # Normalize CI to a better scale
+            "external_temperature": self.weather_manager.get_current_temperature(norm=False)/10,
         }

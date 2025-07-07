@@ -7,7 +7,6 @@ import logging
 import random
 
 # Add the project root directory to the Python path
-# This allows imports from rl_components, envs, etc.
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -21,29 +20,28 @@ import seaborn as sns
 
 sns.set_theme(style="whitegrid")
 
-# --- Local Imports for SustainCluster-MA ---
+# --- Local Imports ---
 from envs.sustaincluster_ma_env import SustainClusterMAEnv
 from simulation.cluster_manager_ma import DatacenterClusterManagerMA
-from rl_components.agent_net_ma import ManagerActor, SharedFeatureExtractor
-from utils.checkpoint_manager_ma import load_checkpoint_data
-from rewards.predefined.composite_reward import CompositeReward
+# ### --- SIMPLIFICATION CHANGE: Import the new simple MLP actor --- ###
+from rl_components.agent_net_simple import ManagerActorMLP 
 from utils.config_loader import load_yaml
 from rewards.registry_utils import get_reward_function
-
+from rewards.predefined.composite_reward import CompositeReward
+from utils.vec_normalize import VecNormalize # <-- Add this import
 
 # --- Configuration ---
 CONFIG_DIR = "configs/env"
-# Base configs for the MA environment
 BASE_SIM_CONFIG_PATH = os.path.join(CONFIG_DIR, "sim_config_ma.yaml")
 BASE_DC_CONFIG_PATH = os.path.join(CONFIG_DIR, "datacenters_ma.yaml")
-# Use the reward config you trained the manager with
 BASE_REWARD_CONFIG_PATH = os.path.join(CONFIG_DIR, "reward_config_manager_ci_only.yaml")
-BASE_ALGO_CONFIG_PATH = os.path.join(CONFIG_DIR, "algorithm_config_ma.yaml")
+# ### --- SIMPLIFICATION CHANGE: Point to the PPO config --- ###
+BASE_ALGO_CONFIG_PATH = os.path.join(CONFIG_DIR, "ppo_algorithm_config.yaml")
 
 
 # --- IMPORTANT: Set this to your trained Manager agent's checkpoint ---
 # Example path, you MUST update this to your actual checkpoint file
-DEFAULT_RL_CHECKPOINT_PATH = "checkpoints/train_MGR_ONLY_task_reward_20250630_163226/best_eval_ckpt.pth"
+DEFAULT_RL_CHECKPOINT_PATH = "checkpoints/PPO_MGR_ONLY_new_reward_opt_network_20250703_230623/best_model.pth"
 
 # Evaluation settings
 EVALUATION_DURATION_DAYS = 7
@@ -65,7 +63,7 @@ print(f"Evaluation log will be saved to: {log_path}")
 
 
 # --- Environment Creation Function ---
-def make_eval_env(base_sim_cfg, base_dc_cfg, base_reward_cfg, duration_days, seed):
+def make_eval_env(base_sim_cfg, base_dc_cfg, base_reward_cfg, duration_days, seed, simple_obs_mode=True):
     """Creates the SustainCluster-MA evaluation environment."""
     sim_cfg = copy.deepcopy(base_sim_cfg)
     dc_cfg = copy.deepcopy(base_dc_cfg)
@@ -93,6 +91,8 @@ def make_eval_env(base_sim_cfg, base_dc_cfg, base_reward_cfg, duration_days, see
         tasks_file_path=sim_cfg["simulation"]["workload_path"],
         cloud_provider=sim_cfg["simulation"]["cloud_provider"],
         max_total_options=sim_cfg["simulation"]["max_total_options"],
+        duration_days=sim_cfg["simulation"]["duration_days"],
+        
         logger=logger,
     )
 
@@ -103,14 +103,14 @@ def make_eval_env(base_sim_cfg, base_dc_cfg, base_reward_cfg, duration_days, see
 
     env = SustainClusterMAEnv(
         cluster_manager_ma=cluster, start_time=start, end_time=end,
-        reward_fn=reward_fn, logger=logger
+        reward_fn=reward_fn, logger=logger, simple_obs_mode=simple_obs_mode
     )
     return env
 
 
 # %%
 # --- Main Evaluation Script ---
-logger.info("--- Starting Evaluation Run ---")
+logger.info("--- Starting PPO Agent Evaluation Run ---")
 logger.info(f"RL Checkpoint: {DEFAULT_RL_CHECKPOINT_PATH}")
 logger.info(f"Seed: {SEED}, Duration: {EVALUATION_DURATION_DAYS} days")
 
@@ -124,66 +124,39 @@ algo_cfg_dict = load_yaml(BASE_ALGO_CONFIG_PATH)
 if not os.path.exists(DEFAULT_RL_CHECKPOINT_PATH):
     raise FileNotFoundError(f"Checkpoint not found at {DEFAULT_RL_CHECKPOINT_PATH}")
 
-device = torch.device("cpu") # Run evaluation on CPU
-checkpoint_data, _ = load_checkpoint_data(path=DEFAULT_RL_CHECKPOINT_PATH, device=device)
-if checkpoint_data is None:
-    raise ValueError("Failed to load checkpoint data.")
+device = torch.device("cpu")
+# NOTE: The checkpoint saving function might need to be adjusted.
+# Assuming it saves a dictionary with 'actor_state_dict'.
+checkpoint = torch.load(DEFAULT_RL_CHECKPOINT_PATH, map_location=device)
 
-# Dynamically get network dimensions from the environment
-temp_env = make_eval_env(base_sim_cfg_dict, base_dc_cfg_dict, base_reward_cfg_dict, 1, SEED)
-first_mgr_id = f"manager_{temp_env._dc_ids[0]}"
-mgr_obs_space = temp_env.observation_space(first_mgr_id)
-
-D_META_MANAGER = mgr_obs_space["obs_manager_meta_task_i"].shape[0]
-D_GLOBAL = mgr_obs_space["global_context"].shape[0]
-MAX_OPT = mgr_obs_space["obs_all_options_set_padded"].shape[0]
-D_OPT = mgr_obs_space["obs_all_options_set_padded"].shape[1]
+# ### --- SIMPLIFICATION CHANGE: Recreate the simple MLP actor --- ###
+# Dynamically get network dimensions from the simplified environment
+base_eval_env = make_eval_env(base_sim_cfg_dict, base_dc_cfg_dict, base_reward_cfg_dict, 1, SEED, simple_obs_mode=True)
+temp_env = VecNormalize(venv=base_eval_env)
+first_mgr_id = f"manager_{temp_env.venv._dc_ids[0]}"
+obs_dim = temp_env.observation_space(first_mgr_id).shape[0]
+action_dim = temp_env.action_space(first_mgr_id).n
 del temp_env
 
-# Get network architecture from algo config
-algo_cfg = algo_cfg_dict["algorithm"]
-attn_cfg = algo_cfg.get("attention", {})
-
-D_option_feat_val = 5
-encoder_hidden_dim_val = 64
-embed_dim_val = 128      
-num_attn_heads_val = 4 
-
-D_emb_meta_manager_val = 8 
-D_global_val = 4           
-max_total_options_val = 7  
-
-actor_query_hidden_dim_val = 64
-actor_scorer_hidden_dim_val = 64
-
-critic_query_hidden_dim_val = 128 # Critic can have different MLP sizes
-critic_q_hidden_dim_val = 128
-
-# Instantiate shared extractor
-shared_extractor = SharedFeatureExtractor(
-    D_option_feat=D_option_feat_val,
-    encoder_hidden_dim=encoder_hidden_dim_val,
-    embed_dim=embed_dim_val,
-    num_attn_heads=num_attn_heads_val
-).to(device)
-
-# Instantiate ManagerActor
-actor = ManagerActor(
-    shared_feature_extractor=shared_extractor,
-    D_emb_meta_manager=D_emb_meta_manager_val,
-    D_global=D_global_val,
-    max_total_options=max_total_options_val,
-    query_hidden_dim=actor_query_hidden_dim_val,
-    scorer_hidden_dim=actor_scorer_hidden_dim_val
-).to(device)
-
-actor.load_state_dict(checkpoint_data["model_state_dict"]["mgr_actor"])
+# Re-create the MLP actor network
+actor = ManagerActorMLP(obs_dim, action_dim, hidden_dim=256).to(device)
+actor.load_state_dict(checkpoint['actor_state_dict'])
 actor.eval()
-logger.info("Successfully loaded Manager Actor policy.")
+logger.info("Successfully loaded PPO Manager Actor policy.")
 
-# --- Create the final evaluation environment ---
-env = make_eval_env(base_sim_cfg_dict, base_dc_cfg_dict, base_reward_cfg_dict,
-                    EVALUATION_DURATION_DAYS, SEED)
+# --- Create the final evaluation environment in simple mode ---
+base_eval_env = make_eval_env(base_sim_cfg_dict, base_dc_cfg_dict, base_reward_cfg_dict,
+                    EVALUATION_DURATION_DAYS, SEED, simple_obs_mode=True)
+env = VecNormalize(venv=base_eval_env)
+
+# Load the saved running mean/std from the checkpoint
+if 'obs_rms' in checkpoint:
+    env.obs_rms = checkpoint['obs_rms']
+    logger.info("Successfully loaded observation normalization stats.")
+else:
+    print("WARNING: No observation normalization stats found in checkpoint. Using default stats.")
+    
+env.eval() 
 
 # %%
 # --- Simulation Loop ---
@@ -191,44 +164,34 @@ obs_dict, _ = env.reset(seed=SEED)
 num_steps = EVALUATION_DURATION_DAYS * 24 * 4
 all_step_infos = []
 
-for step in tqdm(range(num_steps), desc=f"Simulating RL Agent (Seed {SEED})"):
+for step in tqdm(range(num_steps), desc=f"Simulating PPO Agent (Seed {SEED})"):
 
-    # ### --- CORRECTED LOGIC: Simplified Evaluation Loop --- ###
+    # ### --- SIMPLIFICATION CHANGE: Updated simulation loop --- ###
 
     # 1. Prepare observations for the Manager actor from the current `obs_dict`.
-    #    `obs_dict` holds the complete observation for the current state `s_t`.
-    meta_m, opt_m, mask_m, glob_m = [], [], [], []
-    for dc_id in env._dc_ids:
-        o_mgr = obs_dict[f"manager_{dc_id}"]
-        meta_m.append(o_mgr["obs_manager_meta_task_i"])
-        opt_m.append(o_mgr["obs_all_options_set_padded"])
-        mask_m.append(o_mgr["all_options_padding_mask"])
-        glob_m.append(o_mgr["global_context"])
+    #    The observation is now a flattened array for each agent.
+    obs_list = [obs_dict[f"manager_{dc_id}"] for dc_id in env._dc_ids]
+    
+    # Create a single batch tensor for the model
+    obs_tensor = torch.from_numpy(np.stack(obs_list)).float().to(device)
 
-    # Create batch tensor for the model
-    meta_m_t = torch.from_numpy(np.asarray(meta_m)).float().to(device)
-    opt_m_t = torch.from_numpy(np.asarray(opt_m)).float().to(device)
-    mask_m_t = torch.from_numpy(np.asarray(mask_m)).bool().to(device)
-    glob_m_t = torch.from_numpy(np.asarray(glob_m)).float().to(device)
-
-    # 2. Get a deterministic action `a_t` from the actor for evaluation.
+    # 2. Get a deterministic action `a_t` from the actor.
     with torch.no_grad():
-        logits_m = actor(meta_m_t, glob_m_t, opt_m_t, mask_m_t)
-        act_m = torch.argmax(logits_m, dim=-1)
+        logits = actor(obs_tensor)
+        actions = torch.argmax(logits, dim=1)
 
     # 3. Assemble the full action dictionary for the single, unified `step` method.
-    actions_dict = {f"manager_{dc}": act_m[i].item() for i, dc in enumerate(env._dc_ids)}
-    actions_dict.update({f"worker_{dc}": 1 for dc in env._dc_ids}) # Fixed worker policy: Execute Now
+    actions_dict = {f"manager_{dc_id}": actions[i].item() for i, dc_id in enumerate(env._dc_ids)}
+    actions_dict.update({f"worker_{dc_id}": 1 for dc_id in env._dc_ids})
 
-    # 4. Call the single `env.step()` method to execute the entire timestep.
-    #    This returns the next state `s_{t+1}` and the reward `r_t`.
+    # 4. Call the single `env.step()` method.
     next_obs, rew_dict, dones_dict, trunc_dict, info_dict = env.step(actions_dict)
     
     # 5. Store info and update the state for the next loop iteration.
     all_step_infos.append(info_dict)
-    obs_dict = next_obs  # The new state for the next loop is the one returned by step().
+    obs_dict = next_obs
     
-    if dones_dict["__all__"]:
+    if dones_dict["__all__"] or trunc_dict["__all__"]:
         logger.info(f"Simulation ended early at step {step+1}.")
         break
 

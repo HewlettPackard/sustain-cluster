@@ -184,13 +184,13 @@ class Time_Manager():
                 self.current_timestep_in_year = 0
 
         # Check for termination based on duration
-        done = False
+        truncated = False
         if self.max_episode_timesteps is not None:
             if self.episode_step_counter >= self.max_episode_timesteps:
-                done = True
+                truncated = True
 
         # Return current day, hour, time features, and done flag
-        return self.day, self.hour, sc_obs(self.hour, self.day), done
+        return self.day, self.hour, sc_obs(self.hour, self.day), truncated
 
 
 # Class to manage carbon intensity data

@@ -45,7 +45,7 @@ def assign_task_origins(tasks, datacenter_configs, current_time_utc, logger=None
             logger.debug(f"Task {task.job_name} assigned origin DC{origin_dc_id}.")
 
 
-def extract_tasks_from_row(row, scale=1, datacenter_configs=None,
+def extract_tasks_from_row(row, scale=5, datacenter_configs=None,
                            current_time_utc=None, logger=None,
                            task_scale: int = 5, # <<<--- NEW PARAMETER
                            group_size: int = 1): # <<<--- NEW PARAMETER
@@ -87,13 +87,14 @@ def extract_tasks_from_row(row, scale=1, datacenter_configs=None,
 
         # Create scaled/augmented versions (if scale > 1)
         # Note: These scaled tasks will also be part of the grouping later
-        for i in range(scale - 1):
+        for i in range(np.random.randint(0, scale)):
+            varied_duration = max(0.1, duration * np.random.uniform(0.8, 1.2))  # Ensure duration is not zero
             varied_cpu = max(0.5, cores_req * np.random.uniform(0.8, 1.2))
             varied_gpu = max(0.0, gpu_req * np.random.uniform(0.8, 1.2))
             varied_mem = max(0.5, mem_req * np.random.uniform(0.8, 1.2))
             varied_bw = max(0.1, bandwidth_gb * np.random.uniform(0.8, 1.2))
             new_task = Task(
-                f"{job_name}_scaled_{i}", arrival_time, duration,
+                f"{job_name}_scaled_{i}", arrival_time, varied_duration,
                 varied_cpu, varied_gpu, varied_mem, varied_bw
             )
             individual_tasks.append(new_task)

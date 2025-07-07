@@ -1,45 +1,27 @@
 datacenters:
   - dc_id: 1
-    location: "US-CAL-CISO"
-    timezone_shift: -7
-    population_weight: 0.18
-    total_cores: 85000
-    total_gpus: 600
-    total_mem: 80000
-    dc_config_file: "configs/dcs/dc_config.json"
-
-  - dc_id: 2
     location: "DE-LU"
     timezone_shift: 1
     population_weight: 0.22
     total_cores: 85000
-    total_gpus: 600
+    total_gpus: 6000
     total_mem: 80000
     dc_config_file: "configs/dcs/dc_config.json"
 
-  - dc_id: 3
+  - dc_id: 2
     location: "CL-SIC"
     timezone_shift: -5
     population_weight: 0.2
     total_cores: 85000
-    total_gpus: 600
-    total_mem: 80000
-    dc_config_file: "configs/dcs/dc_config.json"
-
-  - dc_id: 4
-    location: "SG"
-    timezone_shift: 8
-    population_weight: 0.25
-    total_cores: 85000
-    total_gpus: 600
+    total_gpus: 6000
     total_mem: 80000
     dc_config_file: "configs/dcs/dc_config.json"
   
-  - dc_id: 5
-    location: "AU-NSW"
-    timezone_shift: 11
-    population_weight: 0.15
+  - dc_id: 3
+    location: "US-CAL-CISO"
+    timezone_shift: -7
+    population_weight: 0.18
     total_cores: 85000
-    total_gpus: 600
+    total_gpus: 6000
     total_mem: 80000
     dc_config_file: "configs/dcs/dc_config.json"

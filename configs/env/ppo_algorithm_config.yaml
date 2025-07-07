@@ -1,0 +1,27 @@
+# Configuration for the PPO (Proximal Policy Optimization) algorithm.
+# These parameters are designed for the simplified, MLP-based manager agent.
+
+ppo_algorithm:
+  # --- Training Loop Parameters ---
+  total_timesteps: 200000000 # Total number of environment steps to train for.
+  learning_rate: 0.0003     # Adam optimizer learning rate. 3e-4 is a standard, robust choice.
+  num_steps: 2048           # Number of steps to collect in the rollout buffer before each update.
+                            # Also known as `n_steps` in many implementations.
+  
+  # --- PPO-Specific Hyperparameters ---
+  update_epochs: 5         # Number of times to iterate over the collected rollout data.
+  minibatch_size: 128        # Size of the minibatch for each update. This is used to break down the collected data into smaller batches.
+  
+  gamma: 0.90               # Discount factor for future rewards.
+  gae_lambda: 0.90          # Lambda for Generalized Advantage Estimation (GAE). Controls bias-variance trade-off.
+  clip_coef: 0.25            # The clipping parameter (epsilon) in the PPO objective function.
+
+  # --- Loss Function Coefficients ---
+  ent_coef: 0.01            # Entropy bonus coefficient. Encourages exploration.
+  vf_coef: 0.5              # Value function (critic) loss coefficient.
+  
+  # --- Technical Parameters ---
+  max_grad_norm: 0.5        # Maximum norm for gradient clipping to prevent exploding gradients.
+  
+  # Note: The 'device' and 'seed' are typically passed via command-line arguments
+  # in the training script, not defined here.

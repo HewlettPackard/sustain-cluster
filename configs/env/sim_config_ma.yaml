@@ -1,9 +1,9 @@
 simulation:
   year: 2023
-  month: 8
+  month: 7
   init_day: 1
   init_hour: 5
-  duration_days: 7
+  duration_days: 17
   timestep_minutes: 15
 
   workload_path: "data/workload/alibaba_2020_dataset/result_df_full_year_2020.pkl"
@@ -12,6 +12,6 @@ simulation:
   strategy: "marl"
   use_tensorboard: true
   log_dir: "runs/train_run"
-  max_total_options: 7
+  max_total_options: 3
 
   aggregation_method: "average" # or "sum", "max", "nn_embedder" (future)

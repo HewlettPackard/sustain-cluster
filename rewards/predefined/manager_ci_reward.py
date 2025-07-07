@@ -55,11 +55,9 @@ class ManagerCarbonProportionalReward(BaseReward):
         for dc_id, action_idx in manager_actions.items():
             manager_id = f"manager_{dc_id}"
             
-            # ### --- THE FIX IS HERE --- ###
             # 1. Get the workload magnitude from the new argument
             magnitudes = workload_magnitudes.get(dc_id, {})
             workload_magnitude = magnitudes.get(self.workload_measure, 0.0)
-            # ### --- END OF FIX --- ###
 
             if workload_magnitude == 0:
                 rewards[manager_id] = 0.0
@@ -82,8 +80,10 @@ class ManagerCarbonProportionalReward(BaseReward):
         for dc_id in worker_actions.keys():
             rewards.setdefault(f"worker_{dc_id}", 0.0)
 
-        self.last_reward = rewards
-        return rewards
+        # Obtain the total reward as the sum of individual rewards
+        total_reward = sum(rewards.values())
+        self.last_reward = total_reward
+        return total_reward
 
     def __str__(self):
         return "ManagerCarbonProportionalReward"

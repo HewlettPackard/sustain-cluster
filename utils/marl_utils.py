@@ -10,11 +10,10 @@ MANAGER_META_TASK_FEATURE_ORDER = [
     "num_tasks",
     "total_cores_req",
     "total_gpu_req",
-    "total_mem_req",
-    "total_bandwidth_gb",
-    "avg_duration_mins",
-    "max_duration_mins",
-    "max_sla_urgency"  # Max urgency corresponds to the task with the minimum time to deadline
+    "total_mem_req", # Worker might also care about this for local packing
+    "total_bandwidth_gb", # Worker might also care about this for local packing
+    "max_duration_mins", # This is the max_duration
+    "max_sla_urgency"
 ]
 
 WORKER_META_TASK_FEATURE_ORDER = [
@@ -22,9 +21,8 @@ WORKER_META_TASK_FEATURE_ORDER = [
     "total_cores_req",
     "total_gpu_req",
     "total_mem_req", # Worker might also care about this for local packing
-    "avg_duration_mins",
-    "avg_wait_intervals",
-    "max_wait_intervals",
+    "total_bandwidth_gb", # Worker might also care about this for local packing
+    "max_duration_mins", # This is the max_duration
     "max_sla_urgency"
 ]
 

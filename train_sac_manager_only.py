@@ -141,7 +141,7 @@ def train():
 
     obs_dict, _ = env.reset(seed=train_seed)
 
-    D_GLOBAL = 4
+    # D_GLOBAL = 4
     D_OPT = env.cluster_manager_ma.D_OPTION_FEAT
     MAX_OPT = env.cluster_manager_ma.max_total_options
     # Worker dimension not needed for this script
@@ -149,15 +149,10 @@ def train():
 
     # --- ### --- MANAGER-ONLY CHANGE --- ### ---
     # --- Network Initialization (Manager Only) ---
-
-    # mgr_actor  = ManagerActor(D_META_MANAGER, D_GLOBAL, D_OPT, MAX_OPT).to(device)
-    # mgr_critic = ManagerCritic(D_META_MANAGER, D_GLOBAL, D_OPT, MAX_OPT).to(device)
-    # mgr_target_critic = ManagerCritic(D_META_MANAGER, D_GLOBAL, D_OPT, MAX_OPT).to(device)
-    # mgr_target_critic.load_state_dict(mgr_critic.state_dict())
     D_option_feat_val = 5
     encoder_hidden_dim_val = 64
     embed_dim_val = 128      
-    num_attn_heads_val = 4 
+    num_attn_heads_val = 16 
     
     D_emb_meta_manager_val = 8 
     D_global_val = 4           
@@ -210,12 +205,17 @@ def train():
 
     mgr_actor_opt = torch.optim.Adam(mgr_actor.parameters(), lr=float(algo_cfg["actor_learning_rate"]))
     mgr_critic_opt = torch.optim.Adam(mgr_critic.parameters(),lr=float(algo_cfg["critic_learning_rate"]))
+    
+    # Set to training mode
+    mgr_actor.train()
+    mgr_critic.train()
+    mgr_target_critic.train()
 
     # --- Replay Buffer (Manager Only) ---
 
     mgr_buffer = ManagerReplayBuffer(capacity = algo_cfg["replay_buffer_size"],
                                     D_emb_meta_manager = D_META_MANAGER,
-                                    D_global = D_GLOBAL,
+                                    D_global = D_global_val,
                                     D_option_feat = D_OPT,
                                     max_total_options = MAX_OPT)
 
@@ -245,19 +245,17 @@ def train():
         mask_m = torch.from_numpy(np.asarray(mask_m, dtype=np.bool_  )).to(device)
         glob_m = torch.from_numpy(np.asarray(glob_m, dtype=np.float32)).to(device)
 
+        # --- Take action a_t based on s_t ---
         with torch.no_grad():
-            act_m, _, _ = mgr_actor.sample_action(meta_m, glob_m, opt_m, mask_m)
+            act_m, _, _, _ = mgr_actor.sample_action(meta_m, glob_m, opt_m, mask_m)
+        
+        # --- Assemble the full action dictionary for the env.step() method ---
+        actions_dict = {f"manager_{dc}": act_m[i].item() for i, dc in enumerate(env._dc_ids)}
+        # Add hardcoded worker actions
+        actions_dict.update({f"worker_{dc}": 1 for dc in env._dc_ids}) # 1 = Execute
 
-        mgr_acts = {dc: act_m[i].item() for i, dc in enumerate(env._dc_ids)}
-        obs_after_mgr = env.manager_step(mgr_acts)
-
-        # ### --- MANAGER-ONLY CHANGE --- ###
-        # --- Hardcoded Worker Action: Always Execute Now (action=0) ---
-        # No need to get worker observations or use a worker policy
-        wrk_act = {dc: 1 for i, dc in enumerate(env._dc_ids)}
-        _ = env.worker_step(wrk_act)
-
-        next_obs, rewards, dones, truncated, infos = env.env_step()
+        # --- Environment processes a_t and returns the full transition ---
+        next_obs, rewards, dones, truncated, infos = env.step(actions_dict)
         done_flag = dones["__all__"] or truncated["__all__"]
         
         # 1. Extract rewards only for the agents we are training (the Managers)
@@ -275,17 +273,30 @@ def train():
         stats.update(global_reward)
         norm_reward = stats.normalize(global_reward)
         
-        # === store transition (Manager Only) ===
+        # In your training loop
+        if global_step % algo_cfg["log_interval"] == 0:
+            writer.add_scalar("Reward/RawGlobalReward", global_reward, global_step)
+            writer.add_scalar("Reward/NormalizedReward", norm_reward, global_step)
+        
+        # === Store the (s_t, a_t, r_t, s_{t+1}, done) tuple ===
+        # Note that the obs components (meta_m, etc.) are from s_t, and next_obs is s_{t+1}
         for i, dc in enumerate(env._dc_ids):
-            mgr_buffer.add(
-                meta_m[i].cpu().numpy(), glob_m[i].cpu().numpy(),
-                opt_m[i].cpu().numpy(),   mask_m[i].cpu().numpy(),
-                act_m[i].item(),          norm_reward, done_flag,
-                next_obs[f"manager_{dc}"]["obs_manager_meta_task_i"],
-                next_obs[f"manager_{dc}"]["global_context"],
-                next_obs[f"manager_{dc}"]["obs_all_options_set_padded"],
-                next_obs[f"manager_{dc}"]["all_options_padding_mask"],
-            )
+            # Only add to buffer if there were tasks for that manager in s_t
+            # A better way is to check the workload magnitude we cached
+            if env.last_manager_workload_magnitudes[dc]['num_tasks'] > 0:
+                mgr_buffer.add(
+                    meta_m[i].cpu().numpy(), # From s_t
+                    glob_m[i].cpu().numpy(), # From s_t
+                    opt_m[i].cpu().numpy(),  # From s_t
+                    mask_m[i].cpu().numpy(), # From s_t
+                    act_m[i].item(),         # a_t
+                    norm_reward,             # r_t
+                    done_flag,
+                    next_obs[f"manager_{dc}"]["obs_manager_meta_task_i"], # From s_{t+1}
+                    next_obs[f"manager_{dc}"]["global_context"],
+                    next_obs[f"manager_{dc}"]["obs_all_options_set_padded"],
+                    next_obs[f"manager_{dc}"]["all_options_padding_mask"],
+                    )
 
         obs_dict = next_obs
         episode_reward += global_reward
@@ -297,7 +308,7 @@ def train():
             writer.add_scalar("Reward/Episode", avg_ep_reward, global_step)
             if logger: logger.info(f"[Episode End] Step: {global_step}, Reward: {episode_reward:.2f}, Avg Reward: {avg_ep_reward:.2f}")
             pbar.write(f"Ep. Reward: {avg_ep_reward:.2f} (steps: {episode_steps})")
-            obs_dict, _ = env.reset(seed=args.seed + global_step // 1000)
+            obs_dict, _ = env.reset(seed=args.seed + global_step//671)
             episode_reward = 0
             episode_steps = 0
 
@@ -339,35 +350,106 @@ def train():
                 next_mask_mb  = next_mask_mb.to(device)
 
                 with torch.no_grad():
-                    next_logits_m = mgr_actor(next_meta_mb, next_glob_mb, next_opt_mb, next_mask_mb)
-                    next_probs_m  = F.softmax(next_logits_m.masked_fill(next_mask_mb, -1e9), dim=-1)
-                    next_logp_m   = F.log_softmax(next_logits_m.masked_fill(next_mask_mb, -1e9), dim=-1)
-                    q1_t_m, q2_t_m  = mgr_target_critic.forward_q_values(next_meta_mb, next_glob_mb, next_opt_mb, next_mask_mb)
-                    q_t_min_m     = torch.min(q1_t_m, q2_t_m)
-                    v_next_m      = (next_probs_m * (q_t_min_m - algo_cfg["alpha"] * next_logp_m)).sum(dim=-1, keepdim=True)
-                    q_target_m    = rew_mb + algo_cfg["gamma"] * (1 - done_mb) * v_next_m
-                    q_target_m = q_target_m.squeeze(1)
+                    # --- Critic Update ---
+                    # To calculate V(s'), we need log-probabilities of the next actions from the current policy.
+                    # Using sample_action is correct as it returns the log_probs we need.
+                    # Note: we don't use the sampled 'actions' here, just the log_probs.
+                    _, _, _, next_logits_m = mgr_actor.sample_action(next_meta_mb, next_glob_mb, next_opt_mb, next_mask_mb)
 
+
+                    # Now, calculate the full log-probability distribution. The mask is already applied inside forward().
+                    # The shape of next_logp_m will now be (512, 7)
+                    next_logp_m = F.log_softmax(next_logits_m, dim=-1)
+                    next_probs_m = F.softmax(next_logits_m, dim=-1)
+                    # Get next Q-values from the target critic
+                    q1_t_m, q2_t_m = mgr_target_critic.forward_q_values(next_meta_mb, next_glob_mb, next_opt_mb, next_mask_mb)
+                    q_t_min_m = torch.min(q1_t_m, q2_t_m)
+
+                    # Calculate the next state value V(s')
+                    # Now the shapes will match for broadcasting:
+                    # next_probs_m: (512, 7)
+                    # q_t_min_m:    (512, 7)
+                    # next_logp_m:  (512, 7)
+                    # Calculate the term inside the sum for all actions
+                    # Shape: (BatchSize, NumActions)
+                    value_per_action = next_probs_m * (q_t_min_m - algo_cfg["alpha"] * next_logp_m)
+
+                    # === START OF NAN FIX ===
+                    # Before summing, we must handle the `nan` from `0 * -inf`.
+                    # We use the mask to set the result for all invalid actions to 0.
+                    # The `next_mask_mb` is `True` for invalid/padded actions.
+                    value_per_action[next_mask_mb] = 0.0
+                    # === END OF NAN FIX ===
+
+                    # Now, sum along the action dimension. The invalid actions contribute 0.
+                    v_next_m = value_per_action.sum(dim=-1, keepdim=True)                    
+                    # Calculate the TD target
+                    q_target_m = rew_mb + algo_cfg["gamma"] * (1 - done_mb) * v_next_m
+
+                    # === CRITICAL FIX #1: TARGET Q-VALUE CLIPPING ===
+                    q_target_m = torch.clamp(q_target_m, -5.0, 5.0)
+
+                # Get current Q-predictions for the actions taken from the replay buffer
                 q1_pred_m, q2_pred_m = mgr_critic.q_for_action(meta_mb, glob_mb, opt_mb, act_mb, mask_mb)
-                q1_loss_m = F.mse_loss(q1_pred_m, q_target_m)
-                q2_loss_m = F.mse_loss(q2_pred_m, q_target_m)
-                critic_loss_m =  0.5 * (q1_loss_m + q2_loss_m)
+
+                # Calculate critic loss
+                # NOTE: The target must have the same shape as the prediction.
+                # q1_pred_m is (B,), so we must squeeze the target.
+                critic_loss_m = F.mse_loss(q1_pred_m, q_target_m.squeeze(-1)) + F.mse_loss(q2_pred_m, q_target_m.squeeze(-1))
                 mgr_critic_opt.zero_grad()
                 critic_loss_m.backward()
+                # torch.nn.utils.clip_grad_norm_(mgr_critic.parameters(), 1.0)
                 mgr_critic_opt.step()
 
+                # --- Actor Update (Delayed) ---
                 if global_step % algo_cfg["policy_update_frequency"] == 0:
-                    logits_m = mgr_actor(meta_mb, glob_mb, opt_mb, mask_mb)
-                    probs_m = F.softmax(logits_m.masked_fill(mask_mb, -1e9), dim=-1)
-                    logp_m   = F.log_softmax(logits_m.masked_fill(mask_mb, -1e9), dim=-1)
+                    # We still need the log-probs and policy entropy from the actor.
+                    # The `sample_action` method can be simplified if it's causing issues,
+                    # but let's work with its current output.
+                    _, _, policy_entropy, logits_m = mgr_actor.sample_action(meta_mb, glob_mb, opt_mb, mask_mb)
+                    
+                    # We can get log_probs directly from the logits.
+                    # The mask is already applied inside the forward pass, setting invalid logits to -inf.
+                    logp_m = F.log_softmax(logits_m, dim=-1)
+                    
+                    # Get Q-values from the main critic and detach them.
                     q1_a_m, q2_a_m = mgr_critic.forward_q_values(meta_mb, glob_mb, opt_mb, mask_mb)
-                    q_a_min_m    = torch.min(q1_a_m, q2_a_m)
-                    actor_loss_m = (probs_m * (algo_cfg["alpha"] * logp_m - q_a_min_m.detach())).sum(dim=-1).mean()
+                    q_a_min_m = torch.min(q1_a_m, q2_a_m).detach()
+
+                    # ====================================================================
+                    # == START OF NUMERICALLY STABLE ACTOR LOSS CALCULATION ============
+                    # ====================================================================
+                    
+                    # Calculate the loss directly using the log-probabilities.
+                    # The actor loss is the expectation over the policy distribution,
+                    # which is sum(prob * (alpha * log_prob - Q)).
+                    # We can rewrite this to use log_prob directly.
+                    # Note: We use a clone of log_prob to avoid in-place modification issues with autograd.
+                    logp_m_clone = logp_m.clone()
+
+                    # For any invalid action (where logp is -inf), we want its contribution
+                    # to the sum to be zero. Since we can't do 0 * -inf, we can just set
+                    # the log_prob at these invalid locations to 0 before the multiplication.
+                    # The probability of these actions is 0 anyway, so this is mathematically sound
+                    # for the expectation calculation.
+                    logp_m_clone[mask_mb] = 0.0 # This prevents `nan` where prob would be 0.
+                    
+                    # We still need the probabilities to weight the expectation.
+                    probs_m = torch.exp(logp_m)
+
+                    # Now calculate the loss. The `nan` from `0 * -inf` is avoided.
+                    actor_loss_m = (probs_m * (algo_cfg["alpha"] * logp_m_clone - q_a_min_m)).sum(dim=-1).mean()
+                    
+                    # ====================================================================
+                    # == END OF STABLE ACTOR LOSS CALCULATION ============================
+                    # ====================================================================
 
                     mgr_actor_opt.zero_grad()
                     actor_loss_m.backward()
+                    # torch.nn.utils.clip_grad_norm_(mgr_actor.parameters(), 1.0)
                     mgr_actor_opt.step()
 
+                    # --- Target Network Update ---
                     for p, tp in zip(mgr_critic.parameters(), mgr_target_critic.parameters()):
                         tp.data.mul_(1 - algo_cfg["tau"]).add_(algo_cfg["tau"] * p.data)
 
@@ -378,6 +460,10 @@ def train():
             if critic_loss_m is not None and actor_loss_m is not None:
                 writer.add_scalar("Manager/Loss_Q", critic_loss_m.item(), global_step)
                 writer.add_scalar("Manager/Loss_Policy", actor_loss_m.item(), global_step)
+                
+                writer.add_scalar("Manager/Debug_Q_Target", q_target_m.mean().item(), global_step)
+                writer.add_scalar("Manager/Debug_Q_Predicted", q1_pred_m.mean().item(), global_step)
+                writer.add_scalar("Manager/Debug_Q_Next_State", q_t_min_m.mean().item(), global_step) # Very important
 
             if logger and all(v is not None for v in (critic_loss_m, actor_loss_m)):
                 logger.info(
@@ -414,9 +500,11 @@ def train():
                 eval_i = 0
 
                 while not done_flag:
-                    meta_m, opt_m, mask_m, glob_m= [], [], [], []
                     print(f"Eval Ep {ep+1}/{algo_cfg['eval_episodes']} Step {eval_i}", end="\r")
                     eval_i += 1
+                    
+                    meta_m, opt_m, mask_m, glob_m= [], [], [], []
+
                     for dc in eval_env._dc_ids:
                         o_mgr = obs_dict[f"manager_{dc}"]
                         meta_m.append(o_mgr["obs_manager_meta_task_i"])
@@ -429,35 +517,26 @@ def train():
                     mask_m = torch.from_numpy(np.asarray(mask_m, dtype=np.bool_  )).to(device)
                     glob_m = torch.from_numpy(np.asarray(glob_m, dtype=np.float32)).to(device)
 
+                    # --- Take a deterministic (greedy) action for evaluation ---
                     with torch.no_grad():
-                        # For evaluation, we can take the greedy action
                         logits_m = mgr_actor(meta_m, glob_m, opt_m, mask_m)
                         act_m = torch.argmax(logits_m, dim=-1)
 
-                    mgr_act = {dc: act_m[i].item() for i, dc in enumerate(env._dc_ids)}
-                    obs_after_mgr = eval_env.manager_step(mgr_act)
+                    # --- Assemble the full action dictionary for the single step() method ---
+                    actions_dict = {f"manager_{dc}": act_m[i].item() for i, dc in enumerate(eval_env._dc_ids)}
+                    actions_dict.update({f"worker_{dc}": 1 for dc in eval_env._dc_ids}) # 1 = Execute
 
-                    # ### --- MANAGER-ONLY CHANGE --- ###
-                    # --- Hardcoded Worker Action in Evaluation ---
-                    wrk_act = {dc: 0 for i, dc in enumerate(env._dc_ids)}
-                    eval_env.worker_step(wrk_act)
-
-                    next_obs, rew_dict, dones_dict, trunc_dict, _ = eval_env.env_step()
-
-                    # 1. Extract rewards for all manager agents
-                    manager_rewards_eval = [
-                        rew_dict[agent_id] for agent_id in rew_dict if agent_id.startswith("manager_")
-                    ]
-
-                    # 2. Accumulate the SUM of these rewards for the episode return.
-                    #    For evaluation, we typically use the sum of rewards (the undiscounted return),
-                    #    not the mean, to measure the total performance over the episode.
-                    if manager_rewards_eval:
-                        step_reward = np.sum(manager_rewards_eval)
-                        ep_ret += step_reward
+                    # --- Use the single, unified step function ---
+                    next_obs, rew_dict, dones_dict, trunc_dict, _ = eval_env.step(actions_dict)
+                    
+                    # --- Accumulate rewards ---
+                    manager_rewards_eval = [rew_dict.get(agent_id, 0.0) for agent_id in eval_env.manager_agent_ids]
+                    step_reward = np.sum(manager_rewards_eval)
+                    ep_ret += step_reward
                         
-                    done_flag = dones_dict["__all__"] or trunc_dict["__all__"]
-                    obs_dict = next_obs
+                    # --- Update state for the next iteration ---
+                    done_flag = dones_dict["__all__"]
+                    obs_dict = next_obs # The new state is the one returned by the step function.
 
                 total_eval_reward += ep_ret
                 if logger:
