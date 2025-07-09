@@ -215,9 +215,9 @@ def train():
 
             per_agent_rewards = [rewards_dict.get(f"manager_{dc_id}", 0.0) for dc_id in env.venv._dc_ids]
             global_reward = np.mean(per_agent_rewards)
-            reward_stats.update(global_reward)
-            normed_reward = reward_stats.normalize(global_reward)
-            rewards_storage[step] = torch.tensor([normed_reward] * num_agents).to(device)
+            # reward_stats.update(global_reward)
+            # normed_reward = reward_stats.normalize(global_reward)
+            rewards_storage[step] = torch.tensor([global_reward] * num_agents).to(device)
             current_episode_return += global_reward
             
             is_done = dones_dict["__all__"]

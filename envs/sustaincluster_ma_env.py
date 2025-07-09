@@ -304,7 +304,7 @@ class SustainClusterMAEnv(gym.Env):
         
         if self.logger:
             self.logger.info(f"SustainClusterMAEnv reset. Start time: {self.current_time}, Seed: {seed}")
-        print(f"SustainClusterMAEnv reset. Start time: {self.current_time}, Seed: {seed} on sustaincluster_ma_env.py.")
+        # print(f"SustainClusterMAEnv reset. Start time: {self.current_time}, Seed: {seed} on sustaincluster_ma_env.py.")
             
         # Get the observation of the complete initial state.
         initial_obs = self._get_observations()

@@ -53,21 +53,21 @@ class DatacenterNodeMA:
         # --- Local Environmental Data Managers ---
         # These are initialized here but will be reset with the correct
         # start time by the global Cluster Manager.
-        self.ci_manager = CI_Manager(
-            location=self.location,
-            simulation_year=dc_config['simulation_year'],
-            timezone_shift=dc_config['timezone_shift']
-        )
-        self.price_manager = ElectricityPrice_Manager(
-            location=self.location,
-            simulation_year=dc_config['simulation_year'],
-            timezone_shift=dc_config['timezone_shift']
-        )
-        self.weather_manager = Weather_Manager(
-            location=self.location,
-            simulation_year=dc_config['simulation_year'],
-            timezone_shift=dc_config['timezone_shift']
-        )
+        # self.ci_manager = CI_Manager(
+        #     location=self.location,
+        #     simulation_year=dc_config['simulation_year'],
+        #     timezone_shift=dc_config['timezone_shift']
+        # )
+        # self.price_manager = ElectricityPrice_Manager(
+        #     location=self.location,
+        #     simulation_year=dc_config['simulation_year'],
+        #     timezone_shift=dc_config['timezone_shift']
+        # )
+        # self.weather_manager = Weather_Manager(
+        #     location=self.location,
+        #     simulation_year=dc_config['simulation_year'],
+        #     timezone_shift=dc_config['timezone_shift']
+        # )
         
         if self.logger:
             self.logger.info(f"DatacenterNodeMA for DC {self.dc_id} ({self.location}) initialized.")
@@ -95,11 +95,11 @@ class DatacenterNodeMA:
         self.physical_dc_model.reset(init_year, adj_day, adj_hour, seed)
 
         # 3. Reset all environmental data managers to the correct start time
-        self.ci_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
-        self.price_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
-        self.weather_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
+        # self.ci_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
+        # self.price_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
+        # self.weather_manager.reset(init_day=adj_day, init_hour=adj_hour, seed=seed)
         
-        print(f"DatacenterNodeMA {self.dc_id} reset to Day {adj_day}, Hour {adj_hour} on datacenter_node_ma.py.")
+        # print(f"DatacenterNodeMA {self.dc_id} reset to Day {adj_day}, Hour {adj_hour} on datacenter_node_ma.py.")
         
         if self.logger:
             self.logger.info(f"DatacenterNodeMA {self.dc_id} reset to Day {adj_day}, Hour {adj_hour}.")
@@ -174,9 +174,9 @@ class DatacenterNodeMA:
             "worker_queue_len": float(len(self.worker_commitment_queue)),
             "cpu_avail_pct": self.physical_dc_model.available_cores / self.physical_dc_model.total_cores,
             "gpu_avail_pct": self.physical_dc_model.available_gpus / self.physical_dc_model.total_gpus,
-            "price": self.price_manager.get_current_price(),
-            "ci": self.ci_manager.get_current_ci(norm=False) / 100, # Example scaling
-            "external_temperature": self.weather_manager.get_current_temperature(norm=False) / 10 # Example scaling
+            "price": self.physical_dc_model.price_manager.get_current_price(),
+            "ci": self.physical_dc_model.ci_manager.get_current_ci(norm=False) / 100, # Example scaling
+            "external_temperature": self.physical_dc_model.weather_manager.get_current_temperature(norm=False) / 10 # Example scaling
         }
         
         return {
@@ -195,8 +195,8 @@ class DatacenterNodeMA:
             self.physical_dc_model.available_cores / self.physical_dc_model.total_cores,
             self.physical_dc_model.available_gpus / self.physical_dc_model.total_gpus,
             self.physical_dc_model.available_mem / self.physical_dc_model.total_mem_GB,
-            self.price_manager.get_current_price(),
-            self.ci_manager.get_current_ci(norm=False),
+            self.physical_dc_model.price_manager.get_current_price(),
+            self.physical_dc_model.ci_manager.get_current_ci(norm=False),
             # TODO: Add battery/HVAC state here later if needed (e.g., self.physical_dc_model.bat_env.get_battery_soc())
         ], dtype=np.float32)
 
@@ -325,7 +325,7 @@ class DatacenterNodeMA:
             "worker_queue_len": float(len(self.worker_commitment_queue)),
             "cpu_avail_pct": self.physical_dc_model.available_cores / self.physical_dc_model.total_cores,
             "gpu_avail_pct": self.physical_dc_model.available_gpus / self.physical_dc_model.total_gpus,
-            "price": self.price_manager.get_current_price(),
-            "ci": self.ci_manager.get_current_ci(norm=False)/100,  # Normalize CI to a better scale
-            "external_temperature": self.weather_manager.get_current_temperature(norm=False)/10,
+            "price": self.physical_dc_model.price_manager.get_current_price(),
+            "ci": self.physical_dc_model.ci_manager.get_current_ci(norm=False)/100,  # Normalize CI to a better scale
+            "external_temperature": self.physical_dc_model.weather_manager.get_current_temperature(norm=False)/10,
         }

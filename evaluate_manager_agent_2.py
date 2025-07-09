@@ -42,7 +42,7 @@ BASE_ALGO_CONFIG_PATH = os.path.join(CONFIG_DIR, "ppo_algorithm_config.yaml")
 
 # --- IMPORTANT: Set this to your trained Manager agent's checkpoint ---
 # Example path, you MUST update this to your actual checkpoint file
-DEFAULT_RL_CHECKPOINT_PATH = "checkpoints/PPO_MGR_ONLY_actor16_20250703_231404/best_model.pth"
+DEFAULT_RL_CHECKPOINT_PATH = "checkpoints/PPO_MGR_ONLY_128hidden_20250708_142928/best_model.pth"
 
 # Evaluation settings
 EVALUATION_DURATION_DAYS = 7
@@ -140,7 +140,7 @@ action_dim = temp_env.action_space(first_mgr_id).n
 del temp_env
 
 # Re-create the MLP actor network
-actor = ManagerActorMLP(obs_dim, action_dim, hidden_dim=16).to(device)
+actor = ManagerActorMLP(obs_dim, action_dim, hidden_dim=128).to(device)
 actor.load_state_dict(checkpoint['actor_state_dict'])
 actor.eval()
 logger.info("Successfully loaded PPO Manager Actor policy.")

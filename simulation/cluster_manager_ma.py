@@ -217,8 +217,11 @@ class DatacenterClusterManagerMA:
                     "transmission_delay_s_per_gb": delay_s,
                     "dc_id": dest_dc_id # Crucial for mapping in the complex mode
                 }
+                # print(f"[DC {dc_id}] External Temperature: {dest_state['external_temperature']:.2f}°C")
+
                 options_list.append(option_dict)
             # --- END OF SIMPLIFICATION CHANGE ---
+            
 
             # 3. Convert to padded NumPy array and create mask (for complex/attention mode).
             num_valid_options = len(options_list)
@@ -242,6 +245,8 @@ class DatacenterClusterManagerMA:
                 # The simple, flattened observation will be constructed in the environment class.
                 # This method just provides all the necessary component parts.
             }
+            
+            # Lets print the external temperature for debugging
 
         # Return a single dictionary containing all the data.
         return {
@@ -251,10 +256,11 @@ class DatacenterClusterManagerMA:
         }
     
     def task_origination(self, current_time_utc: pd.Timestamp, use_meta_tasks: bool = False):
-        for node in self.nodes.values():
-            node.ci_manager.step()
-            node.price_manager.step()
-            node.weather_manager.step()
+        # REMOVE the loop that steps the managers. This is now done inside SustainDC.
+        # for node in self.nodes.values():
+        #     node.ci_manager.step()
+        #     node.price_manager.step()
+        #     node.weather_manager.step()
 
         # B. Task Origination
         newly_arrived_tasks = self._get_newly_arrived_tasks(current_time_utc, use_meta_tasks)

@@ -302,8 +302,12 @@ class SustainDC(gym.Env):
         self.ls_truncated = self.dc_truncated = self.bat_truncated = False
 
         # Adjust based on local timezone
-        local_init_day = (init_day + int((init_hour + self.timezone_shift) / 24)) % 365
-        local_init_hour = (init_hour + self.timezone_shift) % 24
+        # print(f"[DC {self.dc_id}] Resetting environment with init_year={init_year}, init_day={init_day}, init_hour={init_hour}, seed={seed}"
+            #   f", timezone_shift={self.timezone_shift}")
+        # print(f'WARNING: Check if in the init_day and init_hour you are using the local time or UTC time. ')
+        # The init_day and init_hour are already adjusted to the local timezone.
+        local_init_day = init_day
+        local_init_hour = init_hour
         self.current_hour = local_init_hour
         
         t_i = self.t_m.reset(init_day=local_init_day, init_hour=local_init_hour, seed=seed)
@@ -386,6 +390,7 @@ class SustainDC(gym.Env):
         day, hour, t_i, manager_truncated = self.t_m.step()
         # workload = self.workload_m.step()
         temp, norm_temp, wet_bulb, norm_wet_bulb = self.weather_manager.step()
+        # print(f"Stepping Weather_Manager: temp={temp}, norm_temp={norm_temp}, wet_bulb={wet_bulb}, norm_wet_bulb={norm_wet_bulb}")
         ci_i, ci_i_future, ci_i_denorm = self.ci_manager.step()
         price_i = self.price_manager.step()
         
@@ -566,6 +571,8 @@ class SustainDC(gym.Env):
         self._last_cpu_workload = cpu_workload
         self._last_gpu_workload = gpu_workload
         # NOTE: mem_util is not currently used in default HVAC obs, but store if needed
+        
+        # print(f"[DC {self.dc_id}] Updating environments at time {self.current_time_task} with CPU: {cpu_workload:.2f}, GPU: {gpu_workload:.2f}, MEM: {mem_util:.2f}, Temp: {temp:.2f}, Wet Bulb: {wet_bulb:.2f}, CI: {ci_i_denorm:.2f}")
 
         try:
             self.dc_env.set_ambient_temp(temp, wet_bulb)

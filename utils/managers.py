@@ -421,6 +421,7 @@ class Weather_Manager():
 
         self.time_step = (init_day if init_day is not None else self.init_day) * self.time_steps_day + (init_hour if init_hour is not None else 0) * self.timestep_per_hour
         
+        print(f"Resetting Weather_Manager: init_day={init_day}, init_hour={init_hour}, time_step={self.time_step}")
         if not self.debug:
             # Add noise to the temperature data using the CoherentNoise
             rng = np.random.default_rng(seed)
@@ -457,6 +458,8 @@ class Weather_Manager():
         self._current_wet_bulb = self.wet_bulb_data[self.time_step]
         self._current_norm_wet_bulb = self.norm_wet_bulb_data[self.time_step]
         
+        # print(f"Reset Weather_Manager: time_step={self.time_step}, current_temp={self._current_temp}")
+        
         return self._current_temp, self._current_norm_temp, self._current_wet_bulb, self._current_norm_wet_bulb
 
     # Function to advance the time step and return the weather at the new time step
@@ -480,6 +483,8 @@ class Weather_Manager():
         self._next_norm_temp = self.norm_temp_data[self.time_step + 1]
         self._current_wet_bulb = self.wet_bulb_data[self.time_step]
         self._current_norm_wet_bulb = self.norm_wet_bulb_data[self.time_step]
+        
+        # print(f"Stepping Weather_Manager: time_step={self.time_step}, current_temp={self._current_temp}")
             
         return self._current_temp, self._current_norm_temp, self._current_wet_bulb, self._current_norm_wet_bulb
     

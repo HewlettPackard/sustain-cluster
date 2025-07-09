@@ -210,6 +210,8 @@ class dc_gymenv(gym.Env):
             data_center_full_load=data_center_total_ITE_Load,  # Use total load including GPU
             DC_Config=self.DC_Config
         )
+        
+        # print(f"Ambient Temp inside dc_gym for the calculation: {self.ambient_temp}")
         self.HVAC_load = self.CT_Cooling_load + self.Compressor_load
 
         # Set the additional attributes for the cooling tower water usage calculation
