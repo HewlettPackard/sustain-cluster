@@ -42,11 +42,11 @@ BASE_ALGO_CONFIG_PATH = os.path.join(CONFIG_DIR, "ppo_algorithm_config.yaml")
 
 # --- IMPORTANT: Set this to your trained Manager agent's checkpoint ---
 # Example path, you MUST update this to your actual checkpoint file
-DEFAULT_RL_CHECKPOINT_PATH = "checkpoints/PPO_MGR_ONLY_128hidden_20250708_142928/best_model.pth"
+DEFAULT_RL_CHECKPOINT_PATH = "checkpoints/PPO_MGR_ONLY_128hidden_20250708_205052/best_model.pth"
 
 # Evaluation settings
 EVALUATION_DURATION_DAYS = 7
-SEED = 123  # We will evaluate on a single, fixed seed for reproducibility
+SEED = 125  # We will evaluate on a single, fixed seed for reproducibility
 
 # --- Logger and Output Setup ---
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -128,7 +128,7 @@ if not os.path.exists(DEFAULT_RL_CHECKPOINT_PATH):
 device = torch.device("cpu")
 # NOTE: The checkpoint saving function might need to be adjusted.
 # Assuming it saves a dictionary with 'actor_state_dict'.
-checkpoint = torch.load(DEFAULT_RL_CHECKPOINT_PATH, map_location=device)
+checkpoint = torch.load(DEFAULT_RL_CHECKPOINT_PATH, map_location=device, weights_only=False)
 
 # ### --- SIMPLIFICATION CHANGE: Recreate the simple MLP actor --- ###
 # Dynamically get network dimensions from the simplified environment

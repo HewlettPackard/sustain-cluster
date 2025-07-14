@@ -5,7 +5,7 @@ datacenters:
     population_weight: 0.22
     total_cores: 85000
     total_gpus: 6000
-    total_mem: 80000
+    total_mem: 800000
     dc_config_file: "configs/dcs/dc_config.json"
 
   - dc_id: 2
@@ -14,7 +14,7 @@ datacenters:
     population_weight: 0.2
     total_cores: 85000
     total_gpus: 6000
-    total_mem: 80000
+    total_mem: 800000
     dc_config_file: "configs/dcs/dc_config.json"
   
   - dc_id: 3
@@ -23,5 +23,5 @@ datacenters:
     population_weight: 0.18
     total_cores: 85000
     total_gpus: 6000
-    total_mem: 80000
+    total_mem: 800000
     dc_config_file: "configs/dcs/dc_config.json"

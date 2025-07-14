@@ -421,7 +421,7 @@ class Weather_Manager():
 
         self.time_step = (init_day if init_day is not None else self.init_day) * self.time_steps_day + (init_hour if init_hour is not None else 0) * self.timestep_per_hour
         
-        print(f"Resetting Weather_Manager: init_day={init_day}, init_hour={init_hour}, time_step={self.time_step}")
+        # print(f"Resetting Weather_Manager: init_day={init_day}, init_hour={init_hour}, time_step={self.time_step}")
         if not self.debug:
             # Add noise to the temperature data using the CoherentNoise
             rng = np.random.default_rng(seed)

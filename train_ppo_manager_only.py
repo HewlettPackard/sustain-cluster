@@ -76,7 +76,7 @@ def save_simple_checkpoint(actor_state_dict, critic_state_dict, optimizer_state_
     print(f"Saved best model checkpoint to {save_path}")
 
 # --- Environment Creation (can be adapted from your SAC script) ---
-def make_simple_env(sim_cfg_path, dc_cfg_path, reward_cfg_path, writer=None, logger=None):
+def make_simple_env(sim_cfg_path, dc_cfg_path, reward_cfg_path, logger=None):
     sim_cfg_full = load_yaml(sim_cfg_path)
     sim_cfg = sim_cfg_full["simulation"]
     dc_cfg = load_yaml(dc_cfg_path)["datacenters"]

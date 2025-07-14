@@ -3,7 +3,7 @@ simulation:
   month: 7
   init_day: 1
   init_hour: 5
-  duration_days: 17
+  duration_days: 7
   timestep_minutes: 15
 
   workload_path: "data/workload/alibaba_2020_dataset/result_df_full_year_2020.pkl"

@@ -79,7 +79,7 @@ class SustainClusterMAEnv(gym.Env):
             # This is exactly what you described: MetaTask + (NumDCs * DCState) + Global
             total_obs_dim = D_META_MANAGER + (self.num_dcs * d_option_feat) + D_GLOBAL
             self._manager_obs_space = spaces.Box(
-                low=-np.inf, high=np.inf, shape=(total_obs_dim,), dtype=np.float32
+                low=-100, high=100, shape=(total_obs_dim,), dtype=np.float32
             )
         else:
             # Original, complex observation space for attention networks
