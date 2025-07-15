@@ -10,15 +10,15 @@ reward:
   # and a weight for combining them.
   components:
     # First component: Your proportional CI penalty
-    manager_ci_proportional:
-      weight: 0.6  # Example weight: 60% of the reward comes from this
-      args:
-        ci_normalization_factor: 10.0
-        workload_measure: "total_cpu"
+    # manager_ci_proportional:
+    #   weight: 0.6  # Example weight: 60% of the reward comes from this
+    #   args:
+    #     ci_normalization_factor: 10.0
+    #     workload_measure: "total_cpu"
 
     # Second component: The general carbon emissions penalty
     carbon_emissions:
-      weight: 0.4  # Example weight: 40% of the reward comes from this
+      weight: 1.0  # Example weight: 40% of the reward comes from this
       args:
         normalize_factor: 10.0
 

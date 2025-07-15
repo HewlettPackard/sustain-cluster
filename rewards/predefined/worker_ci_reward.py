@@ -51,6 +51,7 @@ class WorkerCISLAPenaltyReward(BaseReward):
 
         delay_term = -self.delay_penalty_coef * sla_penalty / (len(task_info) + 1e-6)
 
+        # print(f"Carbon Term: {carbon_term}, Delay Term: {delay_term}")
         return carbon_term + delay_term
 
     def __str__(self) -> str:

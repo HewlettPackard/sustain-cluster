@@ -124,7 +124,7 @@ def main():
         max_grad_norm=ppo_cfg["max_grad_norm"],
         verbose=1,
         tensorboard_log=str(tb_dir),
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device="cpu",
     )
     total_timesteps = ppo_cfg["total_timesteps"]
     model.learn(total_timesteps=total_timesteps, progress_bar=True)

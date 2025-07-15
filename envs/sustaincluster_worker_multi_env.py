@@ -37,6 +37,8 @@ class SustainClusterWorkerMultiEnv(gym.Env):
         # Episode timing
         self.start_time = start_time
         self.end_time = end_time
+        self.simulation_duration = end_time - start_time
+
         self.current_time = start_time
         self.time_step = pd.Timedelta(minutes=15)
 
@@ -122,12 +124,26 @@ class SustainClusterWorkerMultiEnv(gym.Env):
         super().reset(seed=seed)
         self.current_time = self.start_time
         # Randomize offset inside data year
-        rng = np.random.default_rng(seed)
-        init_day = rng.integers(0, 335)
-        init_hour = rng.integers(0, 24)
+        # Set numpy random seed for reproducibility
+        if seed is not None:
+            np.random.seed(seed)
+            print(f"Resetting with seed: {seed}")
+            
+        
+        # Random init day in month 7 (day 30*7)
+        month_day = np.random.randint(1, 31)
+        init_day = month_day + 30 * 6  # July is the 7th month, so we start from day 1 to 30
+        init_hour = np.random.randint(0, 24)
 
         self.cluster_manager.reset(self.start_time.year, init_day, init_hour, seed)
 
+        # Transform self.start_time.year, init_day, init_hour to the self.current_time
+        self.current_time = pd.Timestamp(year=self.start_time.year, month=7, day=month_day, hour=init_hour, minute=0, second=0)
+        # Add TZ to self.current_time
+        self.current_time = self.current_time.tz_localize('UTC')  # Assuming UTC
+        self.start_time = self.current_time
+        self.end_time = self.current_time + self.simulation_duration
+        
         # Initial workload generation
         self.cluster_manager.task_origination(self.current_time)
         stay_local = {
@@ -194,9 +210,15 @@ class SustainClusterWorkerMultiEnv(gym.Env):
        
         obs_next = np.stack([self._get_observation(dc) for dc in self.dc_ids])
         terminated = (self.current_time >= self.end_time)
-        truncated = False
+        # Extract terminations and truncations from the results dictionary
+        # terminations = cluster_info.get('terminateds', {agent_id: False for agent_id in range(len(self.dc_ids))})
+        # truncations = cluster_info.get('truncateds', {agent_id: False for agent_id in range(len(self.dc_ids))})
+        
+        # Also add the __all key to both terminations and truncations
+        terminations = cluster_info['datacenter_infos'][1].get('terminateds')['__all__']
+        truncations  = cluster_info['datacenter_infos'][1].get('truncateds')['__all__']
         info = {"raw_results": cluster_info}
-        return obs_next, reward, terminated, truncated, info
+        return obs_next, reward, terminations, truncations, info
     
     def render(self, mode: str = "human"):
         for dc in self.dc_ids:
