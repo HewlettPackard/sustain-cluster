@@ -25,3 +25,8 @@ ppo_algorithm:
   
   # Note: The 'device' and 'seed' are typically passed via command-line arguments
   # in the training script, not defined here.
+
+  # --- NEW: Parameters for Evaluation and Saving ---
+  eval_frequency: 50000     # Run an evaluation every 10,000 training steps.
+  eval_episodes: 1          # Run 5 full episodes for each evaluation to get a stable score.
+  save_frequency: 50000     # Save a checkpoint every 20,000 training steps.

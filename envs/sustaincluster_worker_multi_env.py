@@ -23,6 +23,8 @@ class SustainClusterWorkerMultiEnv(gym.Env):
         end_time: pd.Timestamp,
         reward_fn: BaseReward,
         logger: Optional[Any] = None,
+        deterministic_reset: bool = False,
+        fixed_seed: Optional[int] = None,
     ):
         """
         Initializes the multi-agent environment only for worker.
@@ -61,6 +63,9 @@ class SustainClusterWorkerMultiEnv(gym.Env):
         self.pending_tasks: Dict[int, Deque[Task]] = {
             dc: deque() for dc in self.dc_ids
         }
+        
+        self.deterministic_reset = deterministic_reset
+        self.fixed_seed = fixed_seed
 
     
     def _get_time_features(self) -> np.ndarray:
@@ -125,15 +130,29 @@ class SustainClusterWorkerMultiEnv(gym.Env):
         self.current_time = self.start_time
         # Randomize offset inside data year
         # Set numpy random seed for reproducibility
-        if seed is not None:
-            np.random.seed(seed)
-            print(f"Resetting with seed: {seed}")
+        # if seed is not None:
+            # np.random.seed(seed)
+            # print(f"Resetting with seed: {seed}")
             
         
+        if self.deterministic_reset and self.fixed_seed is not None:
+            np.random.seed(self.fixed_seed)
+            # month_day = 15  # Fixed values for deterministic reset
+            # init_hour = 12
+            month_day = np.random.randint(1, 31)
+            init_hour = np.random.randint(0, 24)
+            print(f"Deterministic environemnt reset with seed: {self.fixed_seed} at day {month_day} hour {init_hour}")
+        else:
+            if seed is not None:
+                np.random.seed(seed)
+                print(f"Resetting with seed: {seed}")
+            month_day = np.random.randint(1, 31)
+            init_hour = np.random.randint(0, 24)
+
         # Random init day in month 7 (day 30*7)
-        month_day = np.random.randint(1, 31)
+        # month_day = np.random.randint(1, 31)
         init_day = month_day + 30 * 6  # July is the 7th month, so we start from day 1 to 30
-        init_hour = np.random.randint(0, 24)
+        # init_hour = np.random.randint(0, 24)
 
         self.cluster_manager.reset(self.start_time.year, init_day, init_hour, seed)
 

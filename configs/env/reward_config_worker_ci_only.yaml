@@ -1,7 +1,7 @@
 # configs/env/reward_config_worker_ci.yaml
 reward:
   name: composite           
-  normalize: true
+  normalize: False
   freeze_stats_after_steps: 5000
 
   components:
