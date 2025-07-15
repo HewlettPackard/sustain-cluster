@@ -1,0 +1,13 @@
+# configs/env/reward_config_worker_ci.yaml
+reward:
+  name: composite           
+  normalize: true
+  freeze_stats_after_steps: 5000
+
+  components:
+    worker_ci_sla_penalty:    
+      weight: 1.0
+      args:
+        ci_norm: 30.0
+        delay_penalty_coef: 0.01    
+        sla_threshold_min: 10.0     

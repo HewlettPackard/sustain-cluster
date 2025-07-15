@@ -1,7 +1,7 @@
 import os
 import zipfile
 from collections import deque
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 import numpy as np
 import pandas as pd
 
@@ -45,7 +45,7 @@ class DatacenterClusterManagerMA:
 
         self.cloud_provider = cloud_provider
         self.transmission_cost_matrix = load_transmission_matrix(cloud_provider)
-        
+        self.single_worker_dc_id: Optional[int] = None 
         # === SIMPLIFICATION CHANGE: Ensure `is_local` is the first feature ===
         # This makes it easy for the agent to know which DC it is.
         self.DESTINATION_OPTION_FEATURE_ORDER = [
@@ -159,7 +159,9 @@ class DatacenterClusterManagerMA:
                 meta_task = create_meta_task_from_group(task_group, dc_id, current_time_utc)
                 # The result is still a list, but it contains only one item.
                 meta_tasks_by_origin[dc_id] = [meta_task] 
-        
+        # print(f"[DEBUG-TASK] time={current_time_utc}  "
+        # f"hits={len(tasks_for_time)}")
+        print("[TASK] t=", current_time_utc, "hits=", len(tasks_for_time))
         return meta_tasks_by_origin
 
 
@@ -256,6 +258,8 @@ class DatacenterClusterManagerMA:
         }
     
     def task_origination(self, current_time_utc: pd.Timestamp, use_meta_tasks: bool = False):
+        # print(f"[CHECK-A] task_origination called  t={current_time_utc}")
+        # print("[DEBUG-ORIG] tasks_df rows =", len(self.tasks_df))
         # REMOVE the loop that steps the managers. This is now done inside SustainDC.
         # for node in self.nodes.values():
         #     node.ci_manager.step()
@@ -341,6 +345,10 @@ class DatacenterClusterManagerMA:
         # contain the tasks that are still traveling. The tasks that have
         # arrived are now in their respective DC's worker queues.
         self.in_transit_tasks = remaining_in_transit
+        # for dc_id, node in self.nodes.items():
+            # print(f" [DEBUG-ROUTE] dc={dc_id} "
+            # f"origin_q={len(node.originating_tasks_queue)} "
+            # f"worker_q={len(node.worker_commitment_queue)}")
 
     
     def step_worker(self, current_time_utc: pd.Timestamp,
@@ -430,3 +438,14 @@ class DatacenterClusterManagerMA:
             else:
                 remaining_in_transit.append((arrival_time, task, dest_dc_id))
         self.in_transit_tasks = remaining_in_transit
+
+    def commit_tasks(self, current_time_utc: pd.Timestamp, worker_action_execute: int) -> None:
+
+        if self.single_worker_dc_id is None:
+            raise RuntimeError(
+                "single_worker_dc_id is not set"
+            )
+
+        node = self.nodes[self.single_worker_dc_id]
+        node.apply_worker_decision(worker_action_execute, current_time_utc)
+    

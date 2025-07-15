@@ -99,6 +99,8 @@ def aggregate_tasks_for_worker(task_queue: Deque[Task], current_time_utc: pd.Tim
         "avg_duration_mins": np.mean([t.duration for t in task_queue]),
         "avg_wait_intervals": np.mean(wait_intervals) if wait_intervals else 0.0,
         "max_wait_intervals": float(max(wait_intervals)) if wait_intervals else 0.0,
+        "max_duration_mins": max(t.duration for t in task_queue),
+        "total_bandwidth_gb": sum(t.bandwidth_gb for t in task_queue),
         "max_sla_urgency": max(urgencies) if urgencies else 0.0
     }
 
