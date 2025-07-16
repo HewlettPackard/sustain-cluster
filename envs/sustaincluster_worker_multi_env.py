@@ -194,12 +194,15 @@ class SustainClusterWorkerMultiEnv(gym.Env):
             terminated = (self.current_time >= self.end_time)
             truncated = False
             return obs_next, 0.0, terminated, truncated, {}
-
+        committed_this_step = {dc: 0 for dc in self.dc_ids}
         for idx, dc in enumerate(self.dc_ids):
             self.cluster_manager.single_worker_dc_id = dc
+            before_commit = len(self.cluster_manager.nodes[dc].worker_commitment_queue)
             self.cluster_manager.commit_tasks(
                 self.current_time, int(actions[idx])
             )
+            after_commit = len(self.cluster_manager.nodes[dc].worker_commitment_queue)
+            committed_this_step[dc] = max(0, before_commit - after_commit)
         self._sync_pending()
        
         cluster_info = self.cluster_manager.step_physics(self.current_time)
@@ -236,7 +239,9 @@ class SustainClusterWorkerMultiEnv(gym.Env):
         # Also add the __all key to both terminations and truncations
         terminations = cluster_info['datacenter_infos'][1].get('terminateds')['__all__']
         truncations  = cluster_info['datacenter_infos'][1].get('truncateds')['__all__']
-        info = {"raw_results": cluster_info}
+        info = {"raw_results": cluster_info,
+                "committed_this_step": committed_this_step,
+                "pending_after_step": {dc: len(self.pending_tasks[dc]) for dc in self.dc_ids},}
         return obs_next, reward, terminations, truncations, info
     
     def render(self, mode: str = "human"):
