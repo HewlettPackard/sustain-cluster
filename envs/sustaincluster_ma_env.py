@@ -57,6 +57,10 @@ class SustainClusterMAEnv(gym.Env):
         self.agents = []
 
         # --- Define Observation and Action Spaces ---
+        self._manager_action_space = None  # Explicitly define before assignment in _define_spaces
+        self._manager_obs_space = None
+        self._worker_obs_space = None
+        self._worker_action_space = None
         self._define_spaces()
 
         # --- Internal state for reward calculation ---

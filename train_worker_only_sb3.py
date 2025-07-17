@@ -2,6 +2,7 @@ import argparse, datetime, os, sys, torch, numpy as np, pandas as pd
 from pathlib import Path
 from stable_baselines3 import PPO, A2C, DQN
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
@@ -15,7 +16,8 @@ from simulation.cluster_manager_ma import DatacenterClusterManagerMA
 from rewards.registry_utils import get_reward_function
 from rewards.predefined.composite_reward import CompositeReward
 from utils.config_loader import load_yaml
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
+from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
+from utils.custom_callbacks import CustomEvalCallback
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -122,11 +124,19 @@ def main():
     # The `make_vec_env` helper from SB3 is perfect for this. It handles
     # creating multiple environments, seeding them correctly, and wrapping
     # them in a DummyVecEnv or SubprocVecEnv (if you specify it).
+    print(f"Creating training environment with {args.n_envs} parallel environments...")
     vec_env = make_vec_env(
         lambda: make_env(args.sim_cfg, args.dc_cfg, args.reward_cfg),
         n_envs=args.n_envs,
         seed=42,
         vec_env_cls=SubprocVecEnv,  # Use SubprocVecEnv for parallelism
+    )
+    
+    train_env = VecNormalize(
+        vec_env, 
+        norm_obs=True, 
+        norm_reward=True, # <-- THIS IS THE ONLY CHANGE NEEDED
+        gamma=ppo_cfg.get("gamma", 0.99),  # Use the gamma from the config
     )
     # ent_sched = linear_schedule(0.02)
     # algo_cls = {"PPO": PPO, "A2C": A2C, "DQN": DQN}[args.algo]
@@ -134,20 +144,33 @@ def main():
     # --- 3. Create the Evaluation Environment and Callbacks ---
     print("Creating evaluation environment...")
     eval_seeds = [142, 143, 144, 145, 146]  # 5 deterministic seeds
-    eval_env = make_eval_envs(args.sim_cfg, args.dc_cfg, args.reward_cfg, eval_seeds)
-    
+    unwrapped_eval_env = make_eval_envs(args.sim_cfg, args.dc_cfg, args.reward_cfg, eval_seeds)
+    eval_env = VecNormalize(
+        unwrapped_eval_env,
+        training=False,      # Do not update statistics
+        norm_obs=True,       # Normalize observations
+        norm_reward=False    # DO NOT normalize rewards for evaluation logging
+    )
     # The EvalCallback will run the agent on the `eval_env` periodically.
     # It automatically logs the results to TensorBoard under an "eval" tab
     # and saves the best model found so far.
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path=str(ckpt_dir / "best_model"),
+        best_model_save_path=str(ckpt_dir / "best_eval_model"),
         log_path=str(ckpt_dir / "eval_logs"),
         # Evaluate every `eval_freq` steps. This is per-environment, so we divide by n_envs.
         eval_freq=max(ppo_cfg.get("eval_frequency", 10000) // args.n_envs, 1),
         n_eval_episodes=1,
         deterministic=True, # Use greedy actions for evaluation
         render=False
+    )
+    
+    checkpoint_callback = CheckpointCallback(
+        save_freq=max(ppo_cfg.get("save_frequency", 20000) // args.n_envs, 1),
+        save_path=str(ckpt_dir / "best_eval_model"),
+        name_prefix=f"{args.algo}_ckpt",
+        save_replay_buffer=False, # We are on-policy, no replay buffer
+        save_vecnormalize=True   # <-- THIS IS THE CRUCIAL PARAMETER
     )
     
     # (Optional but Recommended) The CheckpointCallback saves the model at regular intervals.
@@ -160,7 +183,7 @@ def main():
 
     # Combine the callbacks into a list. They will be executed in order.
     # The EvalCallback should generally come first.
-    callback_list = [eval_callback]
+    callback_list = CallbackList([eval_callback, checkpoint_callback])
 
     # --- 4. Define and Train the Model ---
     # n_steps (int) – The number of steps to run for each environment per update 
@@ -168,7 +191,7 @@ def main():
     # NOTE: n_steps * n_envs must be greater than 1 (because of the advantage normalization) 
     model = PPO(
         "MlpPolicy",
-        vec_env,
+        train_env,
         learning_rate=ppo_cfg["learning_rate"],
         n_steps=ppo_cfg["num_steps"]// args.n_envs,  # Divide by n_envs for parallelism
         batch_size=ppo_cfg["minibatch_size"],
@@ -198,7 +221,8 @@ def main():
     # The callbacks already saved the best and periodic models,
     # but it's good practice to save the final model as well.
     model.save(ckpt_dir / f"{args.algo}_final_model")
-    vec_env.close()
+    train_env.save(ckpt_dir / f"{args.algo}_final_vecnormalize.pkl")
+    train_env.close()
     print(f"\n--- Training Finished ---")
     print(f"Best model saved to: {ckpt_dir / 'best_model.zip'}")
     print(f"Final model saved to: {ckpt_dir / f'{args.algo}_final_model.zip'}")

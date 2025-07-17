@@ -1,13 +1,33 @@
 # configs/env/reward_config_worker_ci.yaml
 reward:
-  name: composite           
-  normalize: False
-  freeze_stats_after_steps: 5000
+  name: "worker_throughput"
+  
+  # The args section now defines the WEIGHTS for each normalized component.
+  # A higher weight means you care more about that component.
+  args:
+    # Let's make completing tasks and avoiding SLA violations the most important.
+    reward_per_task_completion: 1.0   # Weight for throughput.
+    sla_violation_penalty: 1.0        # Weight for the SLA violation penalty.
+    
+    # Let's make carbon a significant, but secondary, concern.
+    carbon_penalty_factor: 10.0        # Weight for the carbon penalty.
 
-  components:
-    worker_ci_sla_penalty:    
-      weight: 1.0
-      args:
-        ci_norm: 30.0
-        delay_penalty_coef: 0.01    
-        sla_threshold_min: 10.0     
+    # Queue aging is a small "nudge" to prevent the agent from doing nothing.
+    queue_age_penalty_factor: 0.01     # A small weight for the queue aging penalty.
+
+    # --- THIS IS THE CRUCIAL NEW SECTION ---
+    # Paste the stats from your data collection script here.
+    # The reward function will use these to normalize each component.
+    normalization_stats:
+      throughput:
+        mean: 97.822550
+        std: 64.569674
+      carbon:
+        mean: -281.917383
+        std: 64.721208
+      sla:
+        mean: -21.132600
+        std: 32.004312
+      aging:
+        mean: -1598.039250
+        std: 4280.887078

@@ -17,7 +17,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import seaborn as sns
+# --- Stable Baselines 3 Imports ---
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from envs.sustaincluster_worker_multi_env import SustainClusterWorkerMultiEnv
 from simulation.cluster_manager_ma import DatacenterClusterManagerMA
@@ -36,7 +38,41 @@ BASE_ALGO_CONFIG_PATH = os.path.join(CONFIG_DIR, "ppo_algorithm_config.yaml")
 
 # --- IMPORTANT: Set this to your trained Manager agent's checkpoint ---
 # Example path, you MUST update this to your actual checkpoint file
-DEFAULT_RL_CHECKPOINT_PATH = "checkpoints/train_worker_multi_SB3_PPO_worker_20250714_223550/PPO_model.zip"
+checkpoint = 'train_worker_multi_SB3_PPO_worker_20250716_231341'
+
+# Extract the latest ID from the checkpoint name
+# This assumes the checkpoint name follows a pattern like "train_worker_multi_SB3_PPO_worker_20250716_221121/best_eval_model/PPO_ckpt_850000_steps.zip"
+# I want to check the checkpoints there are inside best_eval_model and obtain the latest ID, like 850000 
+checkpoint_dir = f"checkpoints/{checkpoint}/best_eval_model"
+if not os.path.exists(checkpoint_dir):
+    raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_dir}")
+# List all files in the checkpoint directory
+checkpoint_files = os.listdir(checkpoint_dir)
+# Filter for files that match the PPO checkpoint pattern
+ppo_files = [f for f in checkpoint_files if f.startswith("PPO_ckpt_") and f.endswith("_steps.zip")]
+if not ppo_files:
+    raise FileNotFoundError(f"No PPO checkpoint files found in: {checkpoint_dir}")
+# Extract the step number from the filenames and find the latest one
+latest_steps = []
+for f in ppo_files:
+    # Extract the step number using string manipulation
+    try:
+        step_str = f.split("_")[2]  # Assuming the format is "PPO_ckpt_{step}_steps.zip"
+        latest_steps.append(int(step_str))
+    except (IndexError, ValueError):
+        continue  # Skip files that don't match the expected format
+if not latest_steps:
+    raise ValueError(f"No valid step numbers found in checkpoint files: {ppo_files}")
+latest_id = max(latest_steps)
+latest_id = 3200000
+# Print the latest ID found
+print(f"Latest PPO checkpoint ID found: {latest_id}")
+
+# Define the path to the RL model checkpoint
+DEFAULT_RL_CHECKPOINT_PATH = f"checkpoints/{checkpoint}/best_eval_model/PPO_ckpt_{latest_id}_steps.zip"
+
+# The VecNormalize stats are saved with the same name but a different extension
+VEC_NORMALIZE_PATH = f"checkpoints/{checkpoint}/best_eval_model/PPO_ckpt_vecnormalize_{latest_id}_steps.pkl"
 
 # Evaluation settings
 EVALUATION_DURATION_DAYS = 7
@@ -55,6 +91,8 @@ file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(mes
 logger.addHandler(file_handler)
 logger.info(f"Evaluation log will be saved to: {log_path}")
 print(f"Evaluation log will be saved to: {log_path}")
+
+print("Check if the environment has been normalized...")
 
 
 # --- Environment Creation Function ---
@@ -98,6 +136,9 @@ def make_eval_env(base_sim_cfg, base_dc_cfg, base_reward_cfg, duration_days, see
     env = SustainClusterWorkerMultiEnv(
         cluster_manager=cluster, start_time=start, end_time=end,
         reward_fn=reward_fn, logger=logger)
+    
+    env.reset(seed=seed, options={'is_eval': True}) # Pass an option flag
+
     return env
 
 
@@ -113,30 +154,61 @@ base_dc_cfg_dict = load_yaml(BASE_DC_CONFIG_PATH)
 base_reward_cfg_dict = load_yaml(BASE_REWARD_CONFIG_PATH)
 algo_cfg_dict = load_yaml(BASE_ALGO_CONFIG_PATH)
 
-# --- Load the Trained Worker Actor ---
+# --- Load the Trained Model and Normalization Stats ---
 if not os.path.exists(DEFAULT_RL_CHECKPOINT_PATH):
-    raise FileNotFoundError(f"Checkpoint not found at {DEFAULT_RL_CHECKPOINT_PATH}")
+    raise FileNotFoundError(f"Checkpoint model not found at {DEFAULT_RL_CHECKPOINT_PATH}")
+if not os.path.exists(VEC_NORMALIZE_PATH):
+    raise FileNotFoundError(f"VecNormalize stats not found at {VEC_NORMALIZE_PATH}. "
+                          "Ensure you trained with `save_vecnormalize=True` in CheckpointCallback.")
 
 device = torch.device("cpu")
-model = PPO.load(DEFAULT_RL_CHECKPOINT_PATH, device=device)
-
+#%%
 # --- Create the evaluation environment ---
-eval_env = make_eval_env(base_sim_cfg_dict, base_dc_cfg_dict, base_reward_cfg_dict, EVALUATION_DURATION_DAYS, SEED)
+base_eval_env = DummyVecEnv([lambda: make_eval_env(base_sim_cfg_dict, base_dc_cfg_dict, base_reward_cfg_dict, EVALUATION_DURATION_DAYS, SEED)])
 
-# %%
+print(f"Loading normalization stats from: {VEC_NORMALIZE_PATH}")
+eval_env = VecNormalize.load(VEC_NORMALIZE_PATH, base_eval_env)
+
+# 3. Set the wrapper to evaluation mode.
+#    This prevents the running mean/std from being updated.
+#    It also ensures we see the true, un-normalized rewards.
+eval_env.training = False
+eval_env.norm_reward = False
+
+# 4. Load the PPO model and link it to the now-normalized environment.
+print(f"Loading PPO model from: {DEFAULT_RL_CHECKPOINT_PATH}")
+model = PPO.load(DEFAULT_RL_CHECKPOINT_PATH, env=eval_env, device=device)
+
+logger.info("Successfully loaded PPO model and normalization stats.")
+# %
 # --- Simulation Loop ---
-obs_dict, _ = eval_env.reset(seed=SEED)
+obs_dict = eval_env.reset()
 num_steps = EVALUATION_DURATION_DAYS * 24 * 4
 all_infos = []
+
+raw_obs = eval_env.get_original_obs()
+print(f"Raw observation at reset: {raw_obs}")
+    
 
 for step in tqdm(range(num_steps), desc=f"Evaluating PPO Worker (Seed {SEED})"):
     
     actions, _states = model.predict(obs_dict, deterministic=True)
-    print(f"Actions at step {step}: {actions}")
-    obs, reward, terminated, truncated, info = eval_env.step(actions)
-    all_infos.append(info)
+    # print(f"Actions at step {step}: {actions}")
+    # replace the actions with always 1 for all datacenters
+    # actions = [[1, 1, 1]]
+    
+    # replace the actions with random actions
+    # actions = [[random.randint(0, 1) for _ in range(3)]]
+    obs_dict, reward, terminated, info = eval_env.step(actions)
+    
+    # We can extract the raw observation using eval_env.get_original_obs()
+    # Returns an unnormalized version of the observations from the most recent *step* or *reset*.
+    # raw_obs = eval_env.get_original_obs()
+    # print(f"Raw observation at step {step}: {raw_obs}")
+    
+    all_infos.append(info[0])
 
-    if terminated or truncated:
+    if terminated[0]:
         logger.info(f"Simulation ended early at step {step+1}.")
         break
     

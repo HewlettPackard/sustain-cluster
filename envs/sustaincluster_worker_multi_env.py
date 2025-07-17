@@ -236,7 +236,9 @@ class SustainClusterWorkerMultiEnv(gym.Env):
         # Also add the __all key to both terminations and truncations
         terminations = cluster_info['datacenter_infos'][1].get('terminateds')['__all__']
         truncations  = cluster_info['datacenter_infos'][1].get('truncateds')['__all__']
-        info = {"raw_results": cluster_info}
+        info = {"raw_results": cluster_info,
+                "task_info": task_info,
+                "is_training": not self.deterministic_reset,}
         return obs_next, reward, terminations, truncations, info
     
     def render(self, mode: str = "human"):

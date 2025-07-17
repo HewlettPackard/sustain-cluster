@@ -14,3 +14,4 @@ from rewards.predefined.transmission_cost_reward import TransmissionCostReward
 from rewards.predefined.transmission_emissions_reward import TransmissionEmissionsReward
 from rewards.predefined.manager_ci_reward import ManagerCarbonProportionalReward
 from rewards.predefined.worker_ci_reward import WorkerCISLAPenaltyReward
+from rewards.predefined.worker_throughput_reward import WorkerThroughputReward
