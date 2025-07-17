@@ -13,7 +13,7 @@ class WorkerCISLAPenaltyReward(BaseReward):
         self,
         ci_norm: float = 1000.0,
         delay_penalty_coef: float = 0.01,
-        sla_threshold_min: float = 10.0,
+        sla_threshold_min: float = 30.0,
     ):
         """
         Parameters
@@ -39,7 +39,6 @@ class WorkerCISLAPenaltyReward(BaseReward):
             for dc in cluster_info.get("datacenter_infos", {}).values()
         )
         carbon_term = -total_kg / self.ci_norm
-
         # SLA violation penalty
         sla_penalty = 0.0
         for dc_info in task_info.values():
@@ -47,7 +46,8 @@ class WorkerCISLAPenaltyReward(BaseReward):
             queue_length = dc_info["queue_length"]
         
             overtime = max(0.0, age_mean - self.sla_threshold_min)
-            sla_penalty += queue_length * overtime
+            overtime_penalty = overtime**2
+            sla_penalty += queue_length * overtime_penalty
 
         delay_term = -self.delay_penalty_coef * sla_penalty / (len(task_info) + 1e-6)
 

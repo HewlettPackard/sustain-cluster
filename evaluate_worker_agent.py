@@ -308,6 +308,17 @@ plt.legend(title="Datacenter Location")
 plt.tight_layout()
 plt.show()
 
+# # Plot Commited Tasks each time step per Datacenter
+# plt.figure(figsize=(10, 5))
+# sns.lineplot(data=df_results, x="timestep", y="committed_this_step", hue="datacenter_label", palette="colorblind")
+# plt.title("Committed Tasks per Datacenter (per step)")
+# plt.xlabel("Timestep (15 min intervals)")
+# plt.ylabel("Committed Tasks")
+# plt.legend(title="Datacenter Location")
+# plt.grid(True, linestyle='--', linewidth=0.5)
+# plt.tight_layout()
+# plt.show()
+
 # Plot Running Tasks per Datacenter
 plt.figure(figsize=(10, 5))
 sns.lineplot(data=df_results, x="timestep", y="running_tasks", hue="datacenter_label", palette="colorblind")
@@ -329,6 +340,7 @@ plt.grid(True, which='both', linestyle='--', linewidth=0.5)
 plt.legend(title="Datacenter Location")
 plt.tight_layout()
 plt.show()
+
 
 # %%
 # --- 1x3 Plot: CPU, GPU, and Memory Utilization per Datacenter ---
