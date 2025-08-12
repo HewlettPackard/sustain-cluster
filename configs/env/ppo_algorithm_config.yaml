@@ -1,32 +1,29 @@
-# Configuration for the PPO (Proximal Policy Optimization) algorithm.
-# These parameters are designed for the simplified, MLP-based manager agent.
+# OPTIMIZED Configuration for Parallel PPO with LLM
+# configs/env/ppo_algorithm_config_parallel.yaml
 
 ppo_algorithm:
-  # --- Training Loop Parameters ---
-  total_timesteps: 200000000 # Total number of environment steps to train for.
-  learning_rate: 0.0003     # Adam optimizer learning rate. 3e-4 is a standard, robust choice.
-  num_steps: 2048           # Number of steps to collect in the rollout buffer before each update.
-                            # Also known as `n_steps` in many implementations.
+  # --- FIXED: Training Loop Parameters for Parallel Environments ---
+  total_timesteps: 5000000   # REDUCED from 200M: 5M is plenty for development
+  learning_rate: 0.0003      # Keep same
+  num_steps: 512             # REDUCED from 2048: Parallel envs collect data faster
+                            # With 8 envs × 3 agents × 512 steps = 12,288 steps per update (much better!)
   
   # --- PPO-Specific Hyperparameters ---
-  update_epochs: 5         # Number of times to iterate over the collected rollout data.
-  minibatch_size: 128        # Size of the minibatch for each update. This is used to break down the collected data into smaller batches.
+  update_epochs: 4           # REDUCED from 5: Less epochs needed with more data
+  minibatch_size: 256        # INCREASED from 128: More data per batch with parallel envs
   
-  gamma: 0.99               # Discount factor for future rewards.
-  gae_lambda: 0.90          # Lambda for Generalized Advantage Estimation (GAE). Controls bias-variance trade-off.
-  clip_coef: 0.25            # The clipping parameter (epsilon) in the PPO objective function.
+  gamma: 0.99               # Keep same
+  gae_lambda: 0.90          # Keep same  
+  clip_coef: 0.25           # Keep same
 
   # --- Loss Function Coefficients ---
-  ent_coef: 0.01            # Entropy bonus coefficient. Encourages exploration.
-  vf_coef: 0.5              # Value function (critic) loss coefficient.
+  ent_coef: 0.02            # INCREASED from 0.01: More exploration with LLM guidance
+  vf_coef: 0.5              # Keep same
   
   # --- Technical Parameters ---
-  max_grad_norm: 0.5        # Maximum norm for gradient clipping to prevent exploding gradients.
+  max_grad_norm: 0.5        # Keep same
   
-  # Note: The 'device' and 'seed' are typically passed via command-line arguments
-  # in the training script, not defined here.
-
-  # --- NEW: Parameters for Evaluation and Saving ---
-  eval_frequency: 50000     # Run an evaluation every 10,000 training steps.
-  eval_episodes: 1          # Run 5 full episodes for each evaluation to get a stable score.
-  save_frequency: 50000     # Save a checkpoint every 20,000 training steps.
+  # --- OPTIMIZED: Evaluation and Saving for Parallel Training ---
+  eval_frequency: 20        # MUCH more frequent: Every 20 updates instead of 50000 steps
+  eval_episodes: 3          # REDUCED from 1: Faster evaluation
+  save_frequency: 50        # FREQUENT checkpoints: Every 50 updates

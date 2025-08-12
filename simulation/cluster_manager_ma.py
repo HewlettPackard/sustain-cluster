@@ -39,7 +39,7 @@ class DatacenterClusterManagerMA:
         if max_total_options < self.num_dcs:
             raise ValueError(f"max_total_options ({max_total_options}) must be >= number of datacenters ({self.num_dcs})")
         self.max_total_options = max_total_options
-
+        print('task path is :',tasks_file_path)
         self.tasks_df = self._load_tasks(tasks_file_path)
         self.in_transit_tasks: deque[Tuple[pd.Timestamp, Task, int]] = deque()
 
