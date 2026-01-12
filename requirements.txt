@@ -1,13 +1,27 @@
+# --- Core Constraint (Fixes the Numba/vLLM Error) ---
+numpy==1.26.4
+
+# --- ML Core (H100 Optimized) ---
+torch>=2.4.0
+vllm>=0.6.0
+transformers>=4.46.0
+accelerate
+bitsandbytes
+peft
+trl
+
+# --- Unsloth (From Git) ---
+unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+
+# --- RAG & Data ---
+chromadb>=0.4.22
+sentence-transformers
+pydantic>=2.0.0
+
+# --- Simulation Utils ---
 pandas
-matplotlib
-seaborn
+pyyaml
 tqdm
-psychrolib
-torch
 gymnasium
-pytest
 tensorboard
-PyYAML
-sphinx>=6.0
-furo
-sphinx-autodoc-typehints
+scipy

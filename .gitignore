@@ -65,3 +65,26 @@ consolidate_code_src.py
 !checkpoints/train_multiaction_nodefer_20250527_212105/best_eval_checkpoint.pth
 !checkpoints/train_single_action_enable_defer_20250527_222926/best_eval_checkpoint.pth
 !checkpoints/train_single_action_disable_defer_20250527_223002/best_eval_checkpoint.pth
+.hf_token
+.venv
+.github
+uv.lock
+
+# Massive Data & Models (DO NOT COMMIT THESE)
+models/
+data/rag_store/
+checkpoints/
+
+# Logs & Temporary Results
+data/logs/
+results/evaluation/
+results/plots/
+
+# Large Dataset Files (Optional: keep if <100MB, otherwise ignore)
+# data/expert_trajectories/
+
+# Bytecode
+__pycache__/
+*.pyc
+# Unsloth Cache artifacts
+unsloth_compiled_cache/

@@ -2,10 +2,7 @@ import os
 import json
 import numpy as np
 import pandas as pd
-import psychrolib as psy
 
-# Set the unit system for psychrolib
-psy.SetUnitSystem(psy.SI)
 
 class CoherentNoise:
     """Class to add coherent noise to the data.
@@ -483,8 +480,11 @@ class Weather_Manager():
             
         return self._current_temp, self._current_norm_temp, self._current_wet_bulb, self._current_norm_wet_bulb
     
-    def get_current_temperature(self):
-        return self._current_norm_temp
+    def get_current_temperature(self, norm=True):
+        if norm:
+            return self._current_norm_temp
+        else:
+            return self._current_temp
     
     def get_next_temperature(self):
         return self._next_norm_temp
